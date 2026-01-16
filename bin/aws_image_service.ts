@@ -1,20 +1,28 @@
 #!/usr/bin/env node
+/**
+ * AWS Image Service - CDK App Entry Point
+ * 
+ * This file initializes the CDK application and creates our stack.
+ * The stack will be deployed to the AWS account/region configured in your CLI.
+ */
 import * as cdk from 'aws-cdk-lib/core';
 import { AwsImageServiceStack } from '../lib/aws_image_service-stack';
 
 const app = new cdk.App();
+
 new AwsImageServiceStack(app, 'AwsImageServiceStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
-
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
-
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+  // Use the AWS account and region from your CLI configuration
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+  
+  // Stack description shown in AWS CloudFormation console
+  description: 'Serverless image upload and AI analysis service using S3, Lambda, SQS, DynamoDB, and Bedrock',
+  
+  // Tags applied to all resources in the stack
+  tags: {
+    Project: 'ImageService',
+    Environment: 'Production',
+  },
 });
