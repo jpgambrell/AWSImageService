@@ -254,7 +254,17 @@ export class AwsImageServiceStack extends cdk.Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
-        allowHeaders: ['Content-Type', 'Authorization'],
+        allowHeaders: [
+          'Content-Type', 
+          'Authorization',
+          'X-Api-Key',
+          'X-Amz-Date',
+          'X-Amz-Security-Token',
+          'Accept',
+          'Accept-Encoding',
+        ],
+        allowCredentials: false,
+        statusCode: 200,
       },
       // Binary media types - required for image uploads
       binaryMediaTypes: ['image/*', 'multipart/form-data'],
