@@ -1,0 +1,159 @@
+# AWS Image Service - Postman Collection
+
+This directory contains Postman collections and environments for testing the AWS Image Service API.
+
+## Files
+
+- **AWS-Image-Service-Auth.postman_collection.json** - Authentication endpoints collection
+- **AWS-Image-Service.postman_environment.json** - Environment variables for the API
+
+## Getting Started
+
+### 1. Import into Postman
+
+#### Option A: Import Collection Only
+1. Open Postman
+2. Click **Import** button (top left)
+3. Select the `AWS-Image-Service-Auth.postman_collection.json` file
+4. The collection includes default variables that will work immediately
+
+#### Option B: Import Collection + Environment (Recommended)
+1. Open Postman
+2. Click **Import** button
+3. Select both files:
+   - `AWS-Image-Service-Auth.postman_collection.json`
+   - `AWS-Image-Service.postman_environment.json`
+4. Select the "AWS Image Service - Production" environment from the dropdown (top right)
+
+### 2. Configure Variables
+
+Update these variables in the collection or environment:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `api_url` | Your API Gateway URL | `https://xxxxx.execute-api.us-east-1.amazonaws.com/prod` |
+| `test_email` | Email for test user | `test@example.com` |
+| `test_password` | Password for test user (min 8 chars, 1 upper, 1 lower, 1 digit) | `TestPassword123` |
+| `access_token` | Auto-filled after sign in | - |
+| `id_token` | Auto-filled after sign in | - |
+| `refresh_token` | Auto-filled after sign in | - |
+| `userId` | Auto-filled after sign up | - |
+
+### 3. Test the Authentication Flow
+
+#### Basic Flow (Sign Up → Sign In → Get Profile)
+
+1. **Sign Up** - Create a new user account
+   - Request: `POST /api/auth/signup`
+   - Updates: `userId` variable
+   - Note: Users are automatically confirmed and can sign in immediately
+
+2. **Sign In** - Authenticate and get tokens
+   - Request: `POST /api/auth/signin`
+   - Updates: `access_token`, `id_token`, `refresh_token` variables
+   - Tokens are automatically saved and used in subsequent requests
+
+3. **Get User Profile** - Test protected endpoint
+   - Request: `GET /api/auth/me`
+   - Uses: `access_token` from previous sign in
+   - Returns: User profile information
+
+#### Token Refresh Flow
+
+4. **Refresh Token** - Get new access token
+   - Request: `POST /api/auth/refresh`
+   - Uses: `refresh_token` from sign in
+   - Updates: `access_token` and `id_token`
+   - Note: Refresh token remains the same (reuse it)
+
+#### Password Reset Flow
+
+5. **Forgot Password** - Request password reset
+   - Request: `POST /api/auth/forgot-password`
+   - Sends confirmation code to email
+
+6. **Confirm Forgot Password** - Complete password reset
+   - Request: `POST /api/auth/confirm-forgot-password`
+   - Use code from email
+   - Set new password
+
+## Collection Features
+
+### Automatic Token Management
+
+The collection includes test scripts that automatically:
+- Save tokens after sign in
+- Update tokens after refresh
+- Save user ID after sign up
+- Use Bearer token authentication for protected endpoints
+
+### Test Scripts
+
+Each request includes test scripts that:
+- Validate response status codes
+- Check for required fields in responses
+- Log important information to console
+- Save variables for subsequent requests
+
+### Request Descriptions
+
+Each request includes detailed descriptions explaining:
+- What the endpoint does
+- Required parameters
+- Response format
+- Special notes and requirements
+
+## Troubleshooting
+
+### 401 Unauthorized on Protected Endpoints
+- Make sure you've signed in first to get an access token
+- Check that the `access_token` variable is set
+- Access tokens expire after 1 hour - use the refresh endpoint or sign in again
+
+### 409 Conflict on Sign Up
+- User already exists with that email
+- Use a different email or delete the user in Cognito console
+
+### 400 Bad Request on Sign Up
+- Check password requirements:
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one digit
+
+### Invalid API URL
+- Update the `api_url` variable with your actual API Gateway URL
+- Find your API URL in the AWS CloudFormation outputs or API Gateway console
+
+## API Gateway URL
+
+Your current API URL is:
+```
+https://0p19v2252j.execute-api.us-east-1.amazonaws.com/prod
+```
+
+## Environment Variables Reference
+
+### Input Variables (Configure These)
+- `api_url` - API Gateway base URL
+- `test_email` - Test user email
+- `test_password` - Test user password
+
+### Auto-Populated Variables (Set by Scripts)
+- `access_token` - JWT access token for API authorization (1 hour validity)
+- `id_token` - JWT ID token with user claims
+- `refresh_token` - Token to refresh access token (30 days validity)
+- `userId` - Cognito user sub (unique identifier)
+
+## Additional Resources
+
+- [Swagger Documentation](../swagger/auth.yaml) - Full OpenAPI specification
+- [AWS CloudWatch Dashboard](https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=ImageService-MainDashboard) - Monitor API metrics
+
+## Support
+
+For issues or questions:
+1. Check CloudWatch logs for detailed error messages
+2. Review the Swagger documentation for endpoint specifications
+3. Verify Cognito User Pool configuration in AWS Console
+

@@ -1,0 +1,350 @@
+{
+  "info": {
+    "name": "AWS Image Service - Auth",
+    "description": "Authentication endpoints for AWS Image Service using Cognito",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "12345678"
+  },
+  "item": [
+    {
+      "name": "1. Sign Up",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "    const jsonData = pm.response.json();",
+              "    if (jsonData.data && jsonData.data.userId) {",
+              "        pm.environment.set('userId', jsonData.data.userId);",
+              "        console.log('User ID saved:', jsonData.data.userId);",
+              "    }",
+              "    pm.test('Status code is 201', function () {",
+              "        pm.response.to.have.status(201);",
+              "    });",
+              "    pm.test('Response has success field', function () {",
+              "        pm.expect(jsonData.success).to.eql(true);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\",\n  \"givenName\": \"Test\",\n  \"familyName\": \"User\"\n}"
+        },
+        "url": {
+          "raw": "{{api_url}}/api/auth/signup",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "signup"
+          ]
+        },
+        "description": "Register a new user account. Users are automatically confirmed and can sign in immediately.\n\nPassword requirements:\n- At least 8 characters\n- At least one lowercase letter\n- At least one uppercase letter\n- At least one digit"
+      },
+      "response": []
+    },
+    {
+      "name": "2. Sign In",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    if (jsonData.data) {",
+              "        // Save tokens to environment variables",
+              "        if (jsonData.data.accessToken) {",
+              "            pm.environment.set('access_token', jsonData.data.accessToken);",
+              "            console.log('Access token saved');",
+              "        }",
+              "        if (jsonData.data.idToken) {",
+              "            pm.environment.set('id_token', jsonData.data.idToken);",
+              "            console.log('ID token saved');",
+              "        }",
+              "        if (jsonData.data.refreshToken) {",
+              "            pm.environment.set('refresh_token', jsonData.data.refreshToken);",
+              "            console.log('Refresh token saved');",
+              "        }",
+              "    }",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Response has tokens', function () {",
+              "        pm.expect(jsonData.data.accessToken).to.exist;",
+              "        pm.expect(jsonData.data.idToken).to.exist;",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\"\n}"
+        },
+        "url": {
+          "raw": "{{api_url}}/api/auth/signin",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "signin"
+          ]
+        },
+        "description": "Authenticate with email and password. Returns JWT tokens:\n- accessToken: Use in Authorization header for protected endpoints (1 hour validity)\n- idToken: Contains user claims\n- refreshToken: Use to get new access tokens (30 days validity)"
+      },
+      "response": []
+    },
+    {
+      "name": "3. Get User Profile (Me)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Response has user data', function () {",
+              "        pm.expect(jsonData.data.userId).to.exist;",
+              "        pm.expect(jsonData.data.email).to.exist;",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_url}}/api/auth/me",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "me"
+          ]
+        },
+        "description": "Get the authenticated user's profile information. Requires a valid access token in the Authorization header.\n\nMake sure to sign in first to get an access token."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Refresh Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    if (jsonData.data) {",
+              "        // Update access and ID tokens",
+              "        if (jsonData.data.accessToken) {",
+              "            pm.environment.set('access_token', jsonData.data.accessToken);",
+              "            console.log('Access token refreshed');",
+              "        }",
+              "        if (jsonData.data.idToken) {",
+              "            pm.environment.set('id_token', jsonData.data.idToken);",
+              "            console.log('ID token refreshed');",
+              "        }",
+              "    }",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Response has new tokens', function () {",
+              "        pm.expect(jsonData.data.accessToken).to.exist;",
+              "        pm.expect(jsonData.data.idToken).to.exist;",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+        },
+        "url": {
+          "raw": "{{api_url}}/api/auth/refresh",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "refresh"
+          ]
+        },
+        "description": "Get new access and ID tokens using the refresh token. The refresh token is returned only on sign-in and has a 30-day validity.\n\nNote: A new refresh token is NOT returned - continue using the existing one."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Forgot Password",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Response indicates code sent', function () {",
+              "        const jsonData = pm.response.json();",
+              "        pm.expect(jsonData.success).to.eql(true);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{test_email}}\"\n}"
+        },
+        "url": {
+          "raw": "{{api_url}}/api/auth/forgot-password",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "forgot-password"
+          ]
+        },
+        "description": "Initiate password reset by sending a confirmation code to the user's email.\n\nUse the code with the 'Confirm Forgot Password' endpoint to set a new password."
+      },
+      "response": []
+    },
+    {
+      "name": "6. Confirm Forgot Password",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Password reset successful', function () {",
+              "        const jsonData = pm.response.json();",
+              "        pm.expect(jsonData.success).to.eql(true);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"confirmationCode\": \"123456\",\n  \"newPassword\": \"NewPassword123\"\n}"
+        },
+        "url": {
+          "raw": "{{api_url}}/api/auth/confirm-forgot-password",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "confirm-forgot-password"
+          ]
+        },
+        "description": "Complete password reset using the confirmation code sent to email.\n\nReplace '123456' with the actual code received via email.\n\nNew password must meet the same requirements:\n- At least 8 characters\n- At least one lowercase letter\n- At least one uppercase letter\n- At least one digit"
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "api_url",
+      "value": "https://0p19v2252j.execute-api.us-east-1.amazonaws.com/prod",
+      "type": "string"
+    },
+    {
+      "key": "test_email",
+      "value": "test@example.com",
+      "type": "string"
+    },
+    {
+      "key": "test_password",
+      "value": "TestPassword123",
+      "type": "string"
+    }
+  ]
+}
+
