@@ -87,6 +87,8 @@ The collection includes test scripts that automatically:
 - Save user ID after sign up
 - Use Bearer token authentication for protected endpoints
 
+**IMPORTANT**: API Gateway Cognito User Pool authorizers require the **ID token** (not the access token) for authentication. The "Get User Profile" request uses `{{id_token}}` for this reason.
+
 ### Test Scripts
 
 Each request includes test scripts that:
@@ -156,4 +158,5 @@ For issues or questions:
 1. Check CloudWatch logs for detailed error messages
 2. Review the Swagger documentation for endpoint specifications
 3. Verify Cognito User Pool configuration in AWS Console
+
 

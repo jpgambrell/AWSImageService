@@ -25,7 +25,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: AWS Cognito JWT access token
+      description: |
+        AWS Cognito JWT ID token. 
+        IMPORTANT: API Gateway Cognito authorizers require the ID token, not the access token.
+        Use the `idToken` returned from the signin endpoint.
 
   schemas:
     SignUpRequest:

@@ -150,7 +150,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{access_token}}",
+              "value": "{{id_token}}",
               "type": "string"
             }
           ]
@@ -168,7 +168,7 @@
             "me"
           ]
         },
-        "description": "Get the authenticated user's profile information. Requires a valid access token in the Authorization header.\n\nMake sure to sign in first to get an access token."
+        "description": "Get the authenticated user's profile information. Requires a valid ID token in the Authorization header.\n\nIMPORTANT: API Gateway Cognito authorizers require the ID token (not access token).\n\nMake sure to sign in first to get an ID token."
       },
       "response": []
     },
@@ -347,4 +347,5 @@
     }
   ]
 }
+
 

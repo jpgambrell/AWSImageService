@@ -445,10 +445,27 @@ async function confirmForgotPassword(event: APIGatewayProxyEvent): Promise<APIGa
  * GET /api/auth/me (protected)
  */
 async function getMe(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  // Debug logging - see what the authorizer passes
+  console.log(JSON.stringify({
+    level: 'debug',
+    message: 'Auth event received',
+    action: 'get_me_debug',
+    hasRequestContext: !!event.requestContext,
+    hasAuthorizer: !!event.requestContext?.authorizer,
+    authorizerKeys: event.requestContext?.authorizer ? Object.keys(event.requestContext.authorizer) : [],
+    authorizer: event.requestContext?.authorizer,
+    headers: event.headers,
+  }));
+
   // Extract user info from JWT claims (set by API Gateway Cognito authorizer)
   const claims = extractUserClaims(event);
 
   if (!claims) {
+    console.log(JSON.stringify({
+      level: 'warn',
+      message: 'No claims extracted',
+      action: 'get_me_no_claims',
+    }));
     return errorResponse(401, 'Unauthorized');
   }
 
