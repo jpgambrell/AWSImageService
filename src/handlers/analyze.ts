@@ -63,18 +63,21 @@ export async function handler(event: SQSEvent): Promise<void> {
  */
 async function processRecord(record: SQSRecord): Promise<void> {
   let imageId: string = '';
+  let userId: string = '';
   let correlationId: string = '';
 
   try {
     // Parse the message body
     const message: ImageUploadMessage = JSON.parse(record.body);
     imageId = message.imageId;
+    userId = message.userId;
     correlationId = message.correlationId;
 
     console.log(JSON.stringify({
       level: 'info',
       message: 'Processing image analysis',
       imageId,
+      userId,
       correlationId,
       action: 'analysis_start',
       filename: message.filename,
@@ -86,6 +89,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
     // Create initial analysis record with 'processing' status
     const initialAnalysis: ImageAnalysis = {
       imageId,
+      userId,
       filename: message.filename,
       description: '',
       keywords: [],
@@ -153,6 +157,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
     const now = new Date().toISOString();
     const finalAnalysis: ImageAnalysis = {
       imageId,
+      userId,
       filename: message.filename,
       description: analysisResult.description,
       keywords: analysisResult.keywords,
@@ -184,6 +189,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
       level: 'error',
       message: 'Analysis failed',
       imageId,
+      userId,
       correlationId,
       action: 'analysis_error',
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -197,6 +203,11 @@ async function processRecord(record: SQSRecord): Promise<void> {
           TableName: ANALYSIS_TABLE,
           Item: {
             imageId,
+            userId,
+            filename: '',
+            description: '',
+            keywords: [],
+            detectedText: [],
             status: 'failed',
             error: error instanceof Error ? error.message : 'Unknown error',
             analyzedAt: new Date().toISOString(),

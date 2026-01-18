@@ -1,0 +1,819 @@
+openapi: 3.0.3
+info:
+  title: AWS Image Service API
+  description: |
+    Serverless image upload and AI analysis service built on AWS.
+
+    ## Authentication
+    Most endpoints require JWT authentication via AWS Cognito. Include the access token
+    in the Authorization header as a Bearer token.
+
+    ## User Roles
+    - **user**: Can only access their own images and analysis results
+    - **admin**: Can access all users' data, with optional `?userId=` filter
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: john.gambrell@gmail.com
+
+servers:
+  - url: https://{api-id}.execute-api.{region}.amazonaws.com/prod
+    description: Production API Gateway
+    variables:
+      api-id:
+        default: xxxxxxxxxx
+        description: API Gateway ID
+      region:
+        default: us-east-1
+        description: AWS Region
+
+tags:
+  - name: Auth
+    description: Authentication and user management endpoints
+  - name: Images
+    description: Image upload and retrieval endpoints
+  - name: Analysis
+    description: AI analysis results endpoints
+  - name: Health
+    description: Service health check
+
+components:
+  securitySchemes:
+    CognitoAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: AWS Cognito JWT access token
+
+  schemas:
+    # Auth Schemas
+    SignUpRequest:
+      type: object
+      required:
+        - email
+        - password
+        - givenName
+        - familyName
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: MySecureP@ss123
+        givenName:
+          type: string
+          example: John
+        familyName:
+          type: string
+          example: Doe
+
+    SignInRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: MySecureP@ss123
+
+    ConfirmSignUpRequest:
+      type: object
+      required:
+        - email
+        - confirmationCode
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        confirmationCode:
+          type: string
+          example: "123456"
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          example: eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ...
+
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+
+    ConfirmForgotPasswordRequest:
+      type: object
+      required:
+        - email
+        - confirmationCode
+        - newPassword
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        confirmationCode:
+          type: string
+          example: "123456"
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          example: MyNewSecureP@ss456
+
+    AuthTokens:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: JWT access token for API authorization
+        idToken:
+          type: string
+          description: JWT ID token with user claims
+        refreshToken:
+          type: string
+          description: Token to refresh access token (only on sign-in)
+        expiresIn:
+          type: integer
+          description: Token expiration in seconds
+          example: 3600
+
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Cognito user sub (unique identifier)
+        email:
+          type: string
+          format: email
+        givenName:
+          type: string
+        familyName:
+          type: string
+        role:
+          type: string
+          enum: [user, admin]
+
+    # Image Schemas
+    ImageMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+          example: abc123.jpg
+        originalName:
+          type: string
+          example: my-photo.jpg
+        mimetype:
+          type: string
+          enum: [image/jpeg, image/png, image/gif, image/webp]
+        size:
+          type: integer
+          description: File size in bytes
+          example: 1024000
+        uploadedAt:
+          type: string
+          format: date-time
+        path:
+          type: string
+          example: /api/images/abc123
+        status:
+          type: string
+          enum: [uploaded, processing, analyzed, failed]
+
+    UploadResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        originalName:
+          type: string
+        mimetype:
+          type: string
+        size:
+          type: integer
+        uploadedAt:
+          type: string
+          format: date-time
+        path:
+          type: string
+
+    # Analysis Schemas
+    ImageAnalysis:
+      type: object
+      properties:
+        imageId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        description:
+          type: string
+          description: AI-generated image description
+        keywords:
+          type: array
+          items:
+            type: string
+          example: ["landscape", "mountains", "sunset", "nature", "sky"]
+        detectedText:
+          type: array
+          items:
+            type: string
+          description: Text detected in the image via OCR
+          example: ["Welcome", "Exit", "Road 66"]
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        error:
+          type: string
+          description: Error message if analysis failed
+        analyzedAt:
+          type: string
+          format: date-time
+
+    # Common Response Schemas
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+        error:
+          type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        service:
+          type: string
+          example: aws-image-service
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+
+paths:
+  # Health Check
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the service is running
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  # Auth Endpoints
+  /api/auth/signup:
+    post:
+      tags:
+        - Auth
+      summary: Register new user
+      description: Create a new user account. A confirmation code will be sent to the email.
+      operationId: signUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignUpRequest"
+      responses:
+        "201":
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          userId:
+                            type: string
+                          confirmed:
+                            type: boolean
+                          message:
+                            type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/confirm:
+    post:
+      tags:
+        - Auth
+      summary: Confirm email registration
+      description: Confirm user registration with the code sent to email
+      operationId: confirmSignUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmSignUpRequest"
+      responses:
+        "200":
+          description: Email confirmed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+        "400":
+          description: Invalid or expired confirmation code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/signin:
+    post:
+      tags:
+        - Auth
+      summary: Sign in user
+      description: Authenticate user and return JWT tokens
+      operationId: signIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInRequest"
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AuthTokens"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Email not confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh access token
+      description: Get new access and ID tokens using refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        "200":
+          description: Tokens refreshed successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AuthTokens"
+        "401":
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Initiate password reset
+      description: Send password reset code to user's email
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Password reset code sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/confirm-forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Complete password reset
+      description: Reset password using confirmation code
+      operationId: confirmForgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmForgotPasswordRequest"
+      responses:
+        "200":
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+        "400":
+          description: Invalid or expired confirmation code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Get current user profile
+      description: Get the authenticated user's profile information
+      operationId: getMe
+      security:
+        - CognitoAuth: []
+      responses:
+        "200":
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Image Endpoints
+  /api/upload:
+    post:
+      tags:
+        - Images
+      summary: Upload an image
+      description: |
+        Upload an image for AI analysis. The image will be stored in S3 and 
+        automatically queued for analysis by Amazon Bedrock Claude Vision.
+      operationId: uploadImage
+      security:
+        - CognitoAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (JPEG, PNG, GIF, or WebP, max 10MB)
+      responses:
+        "201":
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: Invalid file type or size
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/images:
+    get:
+      tags:
+        - Images
+      summary: List images
+      description: |
+        List all images for the authenticated user. 
+        Admin users can see all images or filter by userId.
+      operationId: listImages
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: userId
+          in: query
+          description: Filter by user ID (admin only)
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of images
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ImageMetadata"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/images/{imageId}:
+    get:
+      tags:
+        - Images
+      summary: Get image file
+      description: |
+        Download an image file. Returns a redirect to a presigned S3 URL.
+        Users can only access their own images unless they are admin.
+      operationId: getImage
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "302":
+          description: Redirect to presigned S3 URL
+          headers:
+            Location:
+              description: Presigned S3 URL for image download
+              schema:
+                type: string
+                format: uri
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied - not owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/images/{imageId}/info:
+    get:
+      tags:
+        - Images
+      summary: Get image metadata
+      description: |
+        Get metadata for a specific image.
+        Users can only access their own images unless they are admin.
+      operationId: getImageInfo
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Image metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ImageMetadata"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied - not owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Analysis Endpoints
+  /api/analysis:
+    get:
+      tags:
+        - Analysis
+      summary: List analysis results
+      description: |
+        List all AI analysis results for the authenticated user.
+        Admin users can see all analysis or filter by userId.
+      operationId: listAnalysis
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: userId
+          in: query
+          description: Filter by user ID (admin only)
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of analysis results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ImageAnalysis"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/analysis/{imageId}:
+    get:
+      tags:
+        - Analysis
+      summary: Get analysis for image
+      description: |
+        Get the AI analysis results for a specific image.
+        Users can only access their own analysis unless they are admin.
+      operationId: getAnalysis
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Analysis results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ImageAnalysis"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Access denied - not owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Analysis not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"

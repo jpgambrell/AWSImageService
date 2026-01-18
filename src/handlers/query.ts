@@ -17,8 +17,9 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { ApiResponse, ImageMetadata, ImageAnalysis } from '../types';
+import { DynamoDBDocumentClient, GetCommand, ScanCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { ApiResponse, ImageMetadata, ImageAnalysis, JwtClaims } from '../types';
+import { extractUserClaims, isAdmin } from './auth';
 
 // Initialize AWS SDK clients
 const s3Client = new S3Client({});
@@ -35,7 +36,12 @@ const ANALYSIS_TABLE = process.env.ANALYSIS_TABLE!;
  * Routes requests based on path and method
  */
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const { path, httpMethod, pathParameters } = event;
+  const { path, httpMethod, pathParameters, queryStringParameters } = event;
+
+  // Extract user claims for protected routes (will be null for /health)
+  const claims = extractUserClaims(event);
+  const userId = claims?.sub;
+  const userIsAdmin = claims ? isAdmin(claims) : false;
 
   console.log(JSON.stringify({
     level: 'info',
@@ -44,46 +50,58 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     path,
     httpMethod,
     pathParameters,
+    userId,
+    isAdmin: userIsAdmin,
   }));
 
   try {
     // Route the request based on path
     // We use simple string matching since we know our routes
     
-    // Health check
+    // Health check (public - no auth required)
     if (path === '/health') {
       return healthCheck();
     }
 
-    // List all images
+    // All other routes require authentication
+    if (!claims || !userId) {
+      return errorResponse(401, 'Unauthorized - valid token required');
+    }
+
+    // For admin users, allow optional userId query param to filter by specific user
+    const targetUserId = userIsAdmin && queryStringParameters?.userId 
+      ? queryStringParameters.userId 
+      : userId;
+
+    // List all images (filtered by user unless admin)
     if (path === '/api/images' && httpMethod === 'GET') {
-      return listImages();
+      return listImages(targetUserId, userIsAdmin);
     }
 
     // Get image info
     if (path.match(/^\/api\/images\/[^/]+\/info$/) && httpMethod === 'GET') {
       const imageId = pathParameters?.imageId;
       if (!imageId) return errorResponse(400, 'Image ID required');
-      return getImageInfo(imageId);
+      return getImageInfo(imageId, userId, userIsAdmin);
     }
 
     // Get/download image
     if (path.match(/^\/api\/images\/[^/]+$/) && httpMethod === 'GET') {
       const imageId = pathParameters?.imageId;
       if (!imageId) return errorResponse(400, 'Image ID required');
-      return getImage(imageId);
+      return getImage(imageId, userId, userIsAdmin);
     }
 
-    // List all analysis results
+    // List all analysis results (filtered by user unless admin)
     if (path === '/api/analysis' && httpMethod === 'GET') {
-      return listAnalysis();
+      return listAnalysis(targetUserId, userIsAdmin);
     }
 
     // Get analysis for specific image
     if (path.match(/^\/api\/analysis\/[^/]+$/) && httpMethod === 'GET') {
       const imageId = pathParameters?.imageId;
       if (!imageId) return errorResponse(400, 'Image ID required');
-      return getAnalysis(imageId);
+      return getAnalysis(imageId, userId, userIsAdmin);
     }
 
     // Route not found
@@ -118,32 +136,54 @@ async function healthCheck(): Promise<APIGatewayProxyResult> {
 }
 
 /**
- * List all uploaded images
+ * List uploaded images for a user
  * GET /api/images
+ * 
+ * Regular users see only their images.
+ * Admin users can see all images or filter by userId query param.
  */
-async function listImages(): Promise<APIGatewayProxyResult> {
+async function listImages(userId: string, isAdminUser: boolean): Promise<APIGatewayProxyResult> {
   console.log(JSON.stringify({
     level: 'info',
-    message: 'Listing all images',
+    message: 'Listing images',
     action: 'list_images',
+    userId,
+    isAdmin: isAdminUser,
   }));
 
-  // Scan the images table
-  // Note: For production with large datasets, use pagination or query with GSI
-  const result = await docClient.send(new ScanCommand({
-    TableName: IMAGES_TABLE,
-  }));
+  let images: ImageMetadata[] = [];
 
-  const images = result.Items as ImageMetadata[] || [];
+  if (isAdminUser && !userId) {
+    // Admin without filter - scan all images
+    const result = await docClient.send(new ScanCommand({
+      TableName: IMAGES_TABLE,
+    }));
+    images = result.Items as ImageMetadata[] || [];
+  } else {
+    // Query by userId using GSI
+    const result = await docClient.send(new QueryCommand({
+      TableName: IMAGES_TABLE,
+      IndexName: 'userId-uploadedAt-index',
+      KeyConditionExpression: 'userId = :userId',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+      },
+      ScanIndexForward: false, // Descending order (newest first)
+    }));
+    images = result.Items as ImageMetadata[] || [];
+  }
 
-  // Sort by uploadedAt descending (newest first)
-  images.sort((a, b) => 
-    new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
-  );
+  // For scan results (admin all), sort by uploadedAt descending
+  if (isAdminUser && !userId) {
+    images.sort((a, b) => 
+      new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+    );
+  }
 
   // Transform to match original API response format
   const responseImages = images.map(img => ({
     id: img.imageId,
+    userId: img.userId,
     filename: img.filename,
     originalName: img.originalName,
     mimetype: img.mimetype,
@@ -171,13 +211,17 @@ async function listImages(): Promise<APIGatewayProxyResult> {
  * 
  * Instead of streaming the image through Lambda (expensive and slow),
  * we generate a presigned URL that allows direct download from S3.
+ * 
+ * Users can only access their own images unless they are admin.
  */
-async function getImage(imageId: string): Promise<APIGatewayProxyResult> {
+async function getImage(imageId: string, userId: string, isAdminUser: boolean): Promise<APIGatewayProxyResult> {
   console.log(JSON.stringify({
     level: 'info',
     message: 'Getting image',
     action: 'get_image',
     imageId,
+    userId,
+    isAdmin: isAdminUser,
   }));
 
   // First, get the image metadata to find the S3 key
@@ -190,6 +234,11 @@ async function getImage(imageId: string): Promise<APIGatewayProxyResult> {
 
   if (!image) {
     return errorResponse(404, 'Image not found');
+  }
+
+  // Check ownership (unless admin)
+  if (!isAdminUser && image.userId && image.userId !== userId) {
+    return errorResponse(403, 'Access denied - you can only access your own images');
   }
 
   // Generate a presigned URL for S3 (valid for 1 hour)
@@ -217,13 +266,17 @@ async function getImage(imageId: string): Promise<APIGatewayProxyResult> {
 /**
  * Get image metadata
  * GET /api/images/{imageId}/info
+ * 
+ * Users can only access their own images unless they are admin.
  */
-async function getImageInfo(imageId: string): Promise<APIGatewayProxyResult> {
+async function getImageInfo(imageId: string, userId: string, isAdminUser: boolean): Promise<APIGatewayProxyResult> {
   console.log(JSON.stringify({
     level: 'info',
     message: 'Getting image info',
     action: 'get_image_info',
     imageId,
+    userId,
+    isAdmin: isAdminUser,
   }));
 
   const result = await docClient.send(new GetCommand({
@@ -237,9 +290,15 @@ async function getImageInfo(imageId: string): Promise<APIGatewayProxyResult> {
     return errorResponse(404, 'Image not found');
   }
 
+  // Check ownership (unless admin)
+  if (!isAdminUser && image.userId && image.userId !== userId) {
+    return errorResponse(403, 'Access denied - you can only access your own images');
+  }
+
   // Transform to match original API response format
   const responseData = {
     id: image.imageId,
+    userId: image.userId,
     filename: image.filename,
     originalName: image.originalName,
     mimetype: image.mimetype,
@@ -262,28 +321,51 @@ async function getImageInfo(imageId: string): Promise<APIGatewayProxyResult> {
 }
 
 /**
- * List all analysis results
+ * List analysis results for a user
  * GET /api/analysis
+ * 
+ * Regular users see only their analysis results.
+ * Admin users can see all analysis or filter by userId query param.
  */
-async function listAnalysis(): Promise<APIGatewayProxyResult> {
+async function listAnalysis(userId: string, isAdminUser: boolean): Promise<APIGatewayProxyResult> {
   console.log(JSON.stringify({
     level: 'info',
-    message: 'Listing all analysis results',
+    message: 'Listing analysis results',
     action: 'list_analysis',
+    userId,
+    isAdmin: isAdminUser,
   }));
 
-  const result = await docClient.send(new ScanCommand({
-    TableName: ANALYSIS_TABLE,
-  }));
+  let analyses: ImageAnalysis[] = [];
 
-  const analyses = result.Items as ImageAnalysis[] || [];
+  if (isAdminUser && !userId) {
+    // Admin without filter - scan all analysis results
+    const result = await docClient.send(new ScanCommand({
+      TableName: ANALYSIS_TABLE,
+    }));
+    analyses = result.Items as ImageAnalysis[] || [];
+  } else {
+    // Query by userId using GSI
+    const result = await docClient.send(new QueryCommand({
+      TableName: ANALYSIS_TABLE,
+      IndexName: 'userId-analyzedAt-index',
+      KeyConditionExpression: 'userId = :userId',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+      },
+      ScanIndexForward: false, // Descending order (newest first)
+    }));
+    analyses = result.Items as ImageAnalysis[] || [];
+  }
 
-  // Sort by analyzedAt descending (newest first)
-  analyses.sort((a, b) => {
-    const dateA = a.analyzedAt ? new Date(a.analyzedAt).getTime() : 0;
-    const dateB = b.analyzedAt ? new Date(b.analyzedAt).getTime() : 0;
-    return dateB - dateA;
-  });
+  // For scan results (admin all), sort by analyzedAt descending
+  if (isAdminUser && !userId) {
+    analyses.sort((a, b) => {
+      const dateA = a.analyzedAt ? new Date(a.analyzedAt).getTime() : 0;
+      const dateB = b.analyzedAt ? new Date(b.analyzedAt).getTime() : 0;
+      return dateB - dateA;
+    });
+  }
 
   const response: ApiResponse<ImageAnalysis[]> = {
     success: true,
@@ -300,13 +382,17 @@ async function listAnalysis(): Promise<APIGatewayProxyResult> {
 /**
  * Get analysis for a specific image
  * GET /api/analysis/{imageId}
+ * 
+ * Users can only access their own analysis unless they are admin.
  */
-async function getAnalysis(imageId: string): Promise<APIGatewayProxyResult> {
+async function getAnalysis(imageId: string, userId: string, isAdminUser: boolean): Promise<APIGatewayProxyResult> {
   console.log(JSON.stringify({
     level: 'info',
     message: 'Getting analysis',
     action: 'get_analysis',
     imageId,
+    userId,
+    isAdmin: isAdminUser,
   }));
 
   const result = await docClient.send(new GetCommand({
@@ -318,6 +404,11 @@ async function getAnalysis(imageId: string): Promise<APIGatewayProxyResult> {
 
   if (!analysis) {
     return errorResponse(404, 'Analysis not found');
+  }
+
+  // Check ownership (unless admin)
+  if (!isAdminUser && analysis.userId && analysis.userId !== userId) {
+    return errorResponse(403, 'Access denied - you can only access your own analysis');
   }
 
   const response: ApiResponse<ImageAnalysis> = {

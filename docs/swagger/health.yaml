@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: AWS Image Service - Health API
+  description: |
+    Health check endpoint for the AWS Image Service.
+    
+    This endpoint is public and does not require authentication.
+    Use it to verify the service is running and accessible.
+  version: 1.0.0
+
+servers:
+  - url: https://{api-id}.execute-api.{region}.amazonaws.com/prod
+    description: Production API Gateway
+    variables:
+      api-id:
+        default: xxxxxxxxxx
+      region:
+        default: us-east-1
+
+tags:
+  - name: Health
+    description: Service health check
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Service health status
+          enum: [healthy, unhealthy]
+          example: healthy
+        service:
+          type: string
+          description: Service name
+          example: aws-image-service
+        timestamp:
+          type: string
+          format: date-time
+          description: Current server timestamp (ISO 8601)
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: |
+        Check if the AWS Image Service is running and accessible.
+        
+        This endpoint is **public** and does not require authentication.
+        
+        ## Use Cases
+        - Load balancer health checks
+        - Monitoring and alerting systems
+        - Service discovery
+        - Deployment verification
+        
+        ## Response
+        Returns HTTP 200 with status "healthy" when the service is operational.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy and operational
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                service: aws-image-service
+                timestamp: "2024-01-15T10:30:00.000Z"
+        '500':
+          description: Service is unhealthy (internal error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: unhealthy
+                service: aws-image-service
+                timestamp: "2024-01-15T10:30:00.000Z"
+

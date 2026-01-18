@@ -1,0 +1,508 @@
+openapi: 3.0.3
+info:
+  title: AWS Image Service - Auth API
+  description: |
+    Authentication and user management endpoints for the AWS Image Service.
+    Uses AWS Cognito for user authentication and JWT token management.
+  version: 1.0.0
+
+servers:
+  - url: https://{api-id}.execute-api.{region}.amazonaws.com/prod
+    description: Production API Gateway
+    variables:
+      api-id:
+        default: xxxxxxxxxx
+      region:
+        default: us-east-1
+
+tags:
+  - name: Auth
+    description: Authentication and user management
+
+components:
+  securitySchemes:
+    CognitoAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: AWS Cognito JWT access token
+
+  schemas:
+    SignUpRequest:
+      type: object
+      required:
+        - email
+        - password
+        - givenName
+        - familyName
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: |
+            Password must be at least 8 characters and contain:
+            - At least one lowercase letter
+            - At least one uppercase letter
+            - At least one digit
+          example: MySecureP@ss123
+        givenName:
+          type: string
+          example: John
+        familyName:
+          type: string
+          example: Doe
+
+    SignInRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: MySecureP@ss123
+
+    ConfirmSignUpRequest:
+      type: object
+      required:
+        - email
+        - confirmationCode
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        confirmationCode:
+          type: string
+          description: 6-digit code sent to email
+          example: "123456"
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          description: Refresh token from sign-in response
+          example: eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ...
+
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+
+    ConfirmForgotPasswordRequest:
+      type: object
+      required:
+        - email
+        - confirmationCode
+        - newPassword
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        confirmationCode:
+          type: string
+          description: 6-digit code sent to email
+          example: "123456"
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+          example: MyNewSecureP@ss456
+
+    AuthTokens:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: JWT access token for API authorization (1 hour validity)
+        idToken:
+          type: string
+          description: JWT ID token with user claims
+        refreshToken:
+          type: string
+          description: Token to refresh access token (30 days validity, only on sign-in)
+        expiresIn:
+          type: integer
+          description: Token expiration in seconds
+          example: 3600
+
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Cognito user sub (unique identifier)
+        email:
+          type: string
+          format: email
+        givenName:
+          type: string
+        familyName:
+          type: string
+        role:
+          type: string
+          enum: [user, admin]
+          description: User role for access control
+
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+        error:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+
+paths:
+  /api/auth/signup:
+    post:
+      tags:
+        - Auth
+      summary: Register new user
+      description: |
+        Create a new user account with email and password.
+        A confirmation code will be sent to the provided email address.
+        
+        After registration, the user must confirm their email using the 
+        `/api/auth/confirm` endpoint before they can sign in.
+      operationId: signUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+            example:
+              email: user@example.com
+              password: MySecureP@ss123
+              givenName: John
+              familyName: Doe
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          userId:
+                            type: string
+                            format: uuid
+                          confirmed:
+                            type: boolean
+                            example: false
+                          message:
+                            type: string
+                            example: A confirmation code has been sent to your email
+              example:
+                success: true
+                message: Account created. Please check your email to confirm your account.
+                data:
+                  userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  confirmed: false
+                  message: A confirmation code has been sent to your email
+        '400':
+          description: Invalid request (missing fields or invalid password)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Password does not meet requirements"
+        '409':
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "An account with this email already exists"
+
+  /api/auth/confirm:
+    post:
+      tags:
+        - Auth
+      summary: Confirm email registration
+      description: |
+        Confirm user registration using the 6-digit code sent to email.
+        This must be done before the user can sign in.
+      operationId: confirmSignUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmSignUpRequest'
+            example:
+              email: user@example.com
+              confirmationCode: "123456"
+      responses:
+        '200':
+          description: Email confirmed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Email confirmed successfully
+                data:
+                  message: You can now sign in with your email and password
+        '400':
+          description: Invalid or expired confirmation code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Invalid confirmation code"
+
+  /api/auth/signin:
+    post:
+      tags:
+        - Auth
+      summary: Sign in user
+      description: |
+        Authenticate user with email and password.
+        Returns JWT tokens for API authorization.
+        
+        The `accessToken` should be included in the Authorization header for protected endpoints:
+        ```
+        Authorization: Bearer <accessToken>
+        ```
+      operationId: signIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+            example:
+              email: user@example.com
+              password: MySecureP@ss123
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthTokens'
+              example:
+                success: true
+                message: Signed in successfully
+                data:
+                  accessToken: eyJraWQiOiJ...
+                  idToken: eyJraWQiOiJ...
+                  refreshToken: eyJjdHkiOiJ...
+                  expiresIn: 3600
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Invalid email or password"
+        '403':
+          description: Email not confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Please confirm your email before signing in"
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh access token
+      description: |
+        Get new access and ID tokens using the refresh token.
+        The refresh token is returned only on sign-in and has a 30-day validity.
+        
+        Note: A new refresh token is NOT returned - continue using the existing one.
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Tokens refreshed successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthTokens'
+              example:
+                success: true
+                message: Token refreshed successfully
+                data:
+                  accessToken: eyJraWQiOiJ...
+                  idToken: eyJraWQiOiJ...
+                  expiresIn: 3600
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Initiate password reset
+      description: |
+        Send a password reset confirmation code to the user's email.
+        Use the code with `/api/auth/confirm-forgot-password` to set a new password.
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Password reset code sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Password reset initiated
+                data:
+                  message: A confirmation code has been sent to your email
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/confirm-forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Complete password reset
+      description: Reset password using the confirmation code sent to email
+      operationId: confirmForgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmForgotPasswordRequest'
+      responses:
+        '200':
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: Password reset successfully
+                data:
+                  message: You can now sign in with your new password
+        '400':
+          description: Invalid or expired confirmation code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Get current user profile
+      description: |
+        Get the authenticated user's profile information.
+        Requires a valid access token in the Authorization header.
+      operationId: getMe
+      security:
+        - CognitoAuth: []
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+              example:
+                success: true
+                data:
+                  userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  email: user@example.com
+                  givenName: John
+                  familyName: Doe
+                  role: user
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+

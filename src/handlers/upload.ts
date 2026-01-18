@@ -31,6 +31,7 @@ import {
   MAX_FILE_SIZE,
   MIME_TO_EXTENSION,
 } from '../types';
+import { extractUserClaims } from './auth';
 
 // Initialize AWS SDK clients
 // These are created once when Lambda starts (cold start) and reused for subsequent invocations (warm starts)
@@ -53,11 +54,19 @@ const QUEUE_URL = process.env.QUEUE_URL!;
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   // Generate correlation ID for tracing through the system
   const correlationId = uuidv4();
+
+  // Extract userId from JWT claims (set by Cognito authorizer)
+  const claims = extractUserClaims(event);
+  if (!claims) {
+    return errorResponse(401, 'Unauthorized - valid token required');
+  }
+  const userId = claims.sub;
   
   console.log(JSON.stringify({
     level: 'info',
     message: 'Upload request received',
     correlationId,
+    userId,
     action: 'upload_start',
     path: event.path,
     httpMethod: event.httpMethod,
@@ -113,12 +122,14 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const imageId = uuidv4();
     const extension = MIME_TO_EXTENSION[contentType] || '.jpg';
     const storedFilename = `${imageId}${extension}`;
-    const s3Key = `images/${storedFilename}`;
+    // S3 key includes userId for organization and potential future access patterns
+    const s3Key = `images/${userId}/${storedFilename}`;
 
     console.log(JSON.stringify({
       level: 'info',
       message: 'Processing upload',
       correlationId,
+      userId,
       imageId,
       originalName,
       contentType,
@@ -134,6 +145,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       Metadata: {
         'original-name': originalName,
         'correlation-id': correlationId,
+        'user-id': userId,
       },
     }));
 
@@ -151,6 +163,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const now = new Date().toISOString();
     const imageMetadata: ImageMetadata = {
       imageId,
+      userId,
       filename: storedFilename,
       originalName,
       mimetype: contentType,
@@ -176,6 +189,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // Step 3: Send message to SQS for analysis
     const sqsMessage: ImageUploadMessage = {
       imageId,
+      userId,
       filename: storedFilename,
       s3Key,
       mimetype: contentType,
@@ -210,6 +224,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // Build success response (matches original API response format)
     const responseData: UploadResponseData = {
       id: imageId,
+      userId,
       filename: storedFilename,
       originalName,
       mimetype: contentType,

@@ -1,0 +1,433 @@
+openapi: 3.0.3
+info:
+  title: AWS Image Service - Images API
+  description: |
+    Image upload and retrieval endpoints for the AWS Image Service.
+    
+    ## Authentication
+    All endpoints require JWT authentication. Include the access token in the Authorization header:
+    ```
+    Authorization: Bearer <accessToken>
+    ```
+    
+    ## User Isolation
+    - Regular users can only access their own images
+    - Admin users can access all images, with optional `?userId=` filter
+    
+    ## Supported Image Types
+    - JPEG (image/jpeg)
+    - PNG (image/png)
+    - GIF (image/gif)
+    - WebP (image/webp)
+    
+    ## File Size Limit
+    Maximum file size: 10MB
+  version: 1.0.0
+
+servers:
+  - url: https://{api-id}.execute-api.{region}.amazonaws.com/prod
+    description: Production API Gateway
+    variables:
+      api-id:
+        default: xxxxxxxxxx
+      region:
+        default: us-east-1
+
+tags:
+  - name: Images
+    description: Image upload and retrieval
+
+components:
+  securitySchemes:
+    CognitoAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: AWS Cognito JWT access token
+
+  schemas:
+    ImageMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique image identifier
+        userId:
+          type: string
+          format: uuid
+          description: Owner's user ID
+        filename:
+          type: string
+          description: Stored filename (UUID-based)
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg
+        originalName:
+          type: string
+          description: Original uploaded filename
+          example: my-vacation-photo.jpg
+        mimetype:
+          type: string
+          description: MIME type of the image
+          enum: [image/jpeg, image/png, image/gif, image/webp]
+        size:
+          type: integer
+          description: File size in bytes
+          example: 1024000
+        uploadedAt:
+          type: string
+          format: date-time
+          description: Upload timestamp (ISO 8601)
+        path:
+          type: string
+          description: API path to download the image
+          example: /api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        status:
+          type: string
+          description: Processing status
+          enum: [uploaded, processing, analyzed, failed]
+
+    UploadResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        originalName:
+          type: string
+        mimetype:
+          type: string
+        size:
+          type: integer
+        uploadedAt:
+          type: string
+          format: date-time
+        path:
+          type: string
+
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+        error:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+
+paths:
+  /api/upload:
+    post:
+      tags:
+        - Images
+      summary: Upload an image
+      description: |
+        Upload an image for AI analysis.
+        
+        The image will be:
+        1. Validated (type and size)
+        2. Stored in S3 under the user's folder
+        3. Metadata saved to DynamoDB
+        4. Queued for AI analysis by Amazon Bedrock Claude Vision
+        
+        ## Supported Formats
+        - JPEG (image/jpeg)
+        - PNG (image/png)
+        - GIF (image/gif)
+        - WebP (image/webp)
+        
+        ## File Size
+        Maximum: 10MB
+        
+        ## Form Field
+        The image must be uploaded with field name `image` or `file`.
+      operationId: uploadImage
+      security:
+        - CognitoAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file to upload
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/gif, image/webp
+      responses:
+        '201':
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UploadResponse'
+              example:
+                success: true
+                message: Image uploaded successfully
+                data:
+                  id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                  filename: "a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg"
+                  originalName: "my-photo.jpg"
+                  mimetype: "image/jpeg"
+                  size: 1024000
+                  uploadedAt: "2024-01-15T10:30:00.000Z"
+                  path: "/api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        '400':
+          description: Invalid file type or size exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidType:
+                  summary: Invalid file type
+                  value:
+                    success: false
+                    error: "Invalid file type. Allowed types: image/jpeg, image/png, image/gif, image/webp"
+                tooLarge:
+                  summary: File too large
+                  value:
+                    success: false
+                    error: "File too large. Maximum size: 10MB"
+                noFile:
+                  summary: No file uploaded
+                  value:
+                    success: false
+                    error: "No file uploaded or invalid multipart data"
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Unauthorized - valid token required"
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/images:
+    get:
+      tags:
+        - Images
+      summary: List images
+      description: |
+        List all images for the authenticated user.
+        
+        ## User Access
+        - Regular users see only their own images
+        - Admin users can see all images or filter by specific user
+        
+        ## Sorting
+        Images are returned sorted by upload date (newest first).
+      operationId: listImages
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: userId
+          in: query
+          description: |
+            Filter by specific user ID (admin only).
+            If not provided, admin sees all images.
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of images
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ImageMetadata'
+              example:
+                success: true
+                data:
+                  - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                    filename: "a1b2c3d4.jpg"
+                    originalName: "sunset.jpg"
+                    mimetype: "image/jpeg"
+                    size: 2048000
+                    uploadedAt: "2024-01-15T10:30:00.000Z"
+                    path: "/api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    status: "analyzed"
+                  - id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                    userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                    filename: "b2c3d4e5.png"
+                    originalName: "diagram.png"
+                    mimetype: "image/png"
+                    size: 512000
+                    uploadedAt: "2024-01-14T15:45:00.000Z"
+                    path: "/api/images/b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                    status: "processing"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/images/{imageId}:
+    get:
+      tags:
+        - Images
+      summary: Download image
+      description: |
+        Get the image file for download.
+        
+        This endpoint returns a **302 redirect** to a presigned S3 URL.
+        The presigned URL is valid for 1 hour.
+        
+        ## Access Control
+        - Users can only download their own images
+        - Admin users can download any image
+      operationId: getImage
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          description: Image UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '302':
+          description: Redirect to presigned S3 URL
+          headers:
+            Location:
+              description: Presigned S3 URL for direct image download (valid 1 hour)
+              schema:
+                type: string
+                format: uri
+                example: https://image-service-bucket-123456789.s3.amazonaws.com/images/user123/image.jpg?X-Amz-Algorithm=...
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied - not the owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Access denied - you can only access your own images"
+        '404':
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Image not found"
+
+  /api/images/{imageId}/info:
+    get:
+      tags:
+        - Images
+      summary: Get image metadata
+      description: |
+        Get metadata for a specific image without downloading the file.
+        
+        ## Access Control
+        - Users can only access metadata for their own images
+        - Admin users can access any image's metadata
+      operationId: getImageInfo
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          description: Image UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Image metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImageMetadata'
+              example:
+                success: true
+                data:
+                  id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                  filename: "a1b2c3d4.jpg"
+                  originalName: "sunset.jpg"
+                  mimetype: "image/jpeg"
+                  size: 2048000
+                  uploadedAt: "2024-01-15T10:30:00.000Z"
+                  path: "/api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  status: "analyzed"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Access denied - not the owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+

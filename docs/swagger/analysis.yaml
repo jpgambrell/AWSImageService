@@ -1,0 +1,328 @@
+openapi: 3.0.3
+info:
+  title: AWS Image Service - Analysis API
+  description: |
+    AI analysis results endpoints for the AWS Image Service.
+    
+    ## How Analysis Works
+    When an image is uploaded, it is automatically queued for AI analysis using 
+    Amazon Bedrock Claude Vision. The analysis extracts:
+    - **Description**: A detailed natural language description of the image
+    - **Keywords**: 5 keywords/tags describing the main elements
+    - **Detected Text**: Any text found in the image (OCR)
+    
+    ## Authentication
+    All endpoints require JWT authentication. Include the access token in the Authorization header:
+    ```
+    Authorization: Bearer <accessToken>
+    ```
+    
+    ## User Isolation
+    - Regular users can only access analysis for their own images
+    - Admin users can access all analysis, with optional `?userId=` filter
+  version: 1.0.0
+
+servers:
+  - url: https://{api-id}.execute-api.{region}.amazonaws.com/prod
+    description: Production API Gateway
+    variables:
+      api-id:
+        default: xxxxxxxxxx
+      region:
+        default: us-east-1
+
+tags:
+  - name: Analysis
+    description: AI image analysis results
+
+components:
+  securitySchemes:
+    CognitoAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: AWS Cognito JWT access token
+
+  schemas:
+    ImageAnalysis:
+      type: object
+      description: AI analysis results for an image
+      properties:
+        imageId:
+          type: string
+          format: uuid
+          description: Image ID this analysis belongs to
+        userId:
+          type: string
+          format: uuid
+          description: Owner's user ID
+        filename:
+          type: string
+          description: Image filename
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg
+        description:
+          type: string
+          description: |
+            AI-generated natural language description of the image.
+            Typically 2-4 sentences describing subjects, setting, colors, and notable details.
+          example: "A stunning sunset over mountain peaks with vibrant orange and purple hues. The silhouettes of pine trees frame the foreground, creating a dramatic contrast against the colorful sky."
+        keywords:
+          type: array
+          description: 5 keywords or short phrases describing the main elements
+          items:
+            type: string
+          example: ["sunset", "mountains", "landscape", "nature", "sky"]
+        detectedText:
+          type: array
+          description: |
+            Text detected in the image via OCR (Optical Character Recognition).
+            Includes signs, labels, addresses, business names, etc.
+            Empty array if no text was detected.
+          items:
+            type: string
+          example: ["Welcome to Colorado", "Exit 25", "Speed Limit 65"]
+        status:
+          type: string
+          description: |
+            Analysis processing status:
+            - `pending`: Analysis queued but not started
+            - `processing`: Analysis in progress
+            - `completed`: Analysis finished successfully
+            - `failed`: Analysis failed (check error field)
+          enum: [pending, processing, completed, failed]
+        error:
+          type: string
+          description: Error message if status is 'failed'
+          example: "Failed to read image from S3"
+        analyzedAt:
+          type: string
+          format: date-time
+          description: Timestamp when analysis was completed (or failed)
+
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+        error:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+
+paths:
+  /api/analysis:
+    get:
+      tags:
+        - Analysis
+      summary: List analysis results
+      description: |
+        List all AI analysis results for the authenticated user.
+        
+        ## User Access
+        - Regular users see only their own analysis results
+        - Admin users can see all analysis or filter by specific user
+        
+        ## Sorting
+        Results are returned sorted by analysis date (newest first).
+        
+        ## Status Values
+        Check the `status` field to determine if analysis is complete:
+        - `completed`: Analysis ready
+        - `processing`: Still analyzing
+        - `failed`: Analysis failed
+      operationId: listAnalysis
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: userId
+          in: query
+          description: |
+            Filter by specific user ID (admin only).
+            If not provided, admin sees all analysis.
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of analysis results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ImageAnalysis'
+              example:
+                success: true
+                data:
+                  - imageId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                    filename: "a1b2c3d4.jpg"
+                    description: "A stunning sunset over mountain peaks with vibrant orange and purple hues."
+                    keywords: ["sunset", "mountains", "landscape", "nature", "sky"]
+                    detectedText: []
+                    status: "completed"
+                    analyzedAt: "2024-01-15T10:35:00.000Z"
+                  - imageId: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                    userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                    filename: "b2c3d4e5.png"
+                    description: ""
+                    keywords: []
+                    detectedText: []
+                    status: "processing"
+                  - imageId: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+                    userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                    filename: "c3d4e5f6.jpg"
+                    description: "A business card showing company information and contact details."
+                    keywords: ["business card", "text", "contact", "professional", "corporate"]
+                    detectedText: ["ACME Corp", "John Smith", "CEO", "john@acme.com", "555-1234"]
+                    status: "completed"
+                    analyzedAt: "2024-01-14T15:50:00.000Z"
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Unauthorized - valid token required"
+
+  /api/analysis/{imageId}:
+    get:
+      tags:
+        - Analysis
+      summary: Get analysis for image
+      description: |
+        Get the AI analysis results for a specific image.
+        
+        ## Access Control
+        - Users can only access analysis for their own images
+        - Admin users can access any analysis
+        
+        ## Status Values
+        Check the `status` field:
+        - `completed`: Analysis ready with description, keywords, and detected text
+        - `processing`: Analysis still in progress (try again later)
+        - `failed`: Analysis failed (check `error` field)
+        - `pending`: Analysis queued but not started
+      operationId: getAnalysis
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          description: Image UUID to get analysis for
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImageAnalysis'
+              examples:
+                completed:
+                  summary: Completed analysis
+                  value:
+                    success: true
+                    data:
+                      imageId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                      userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                      filename: "a1b2c3d4.jpg"
+                      description: "A stunning sunset over mountain peaks with vibrant orange and purple hues. The silhouettes of pine trees frame the foreground, creating a dramatic contrast against the colorful sky."
+                      keywords: ["sunset", "mountains", "landscape", "nature", "sky"]
+                      detectedText: []
+                      status: "completed"
+                      analyzedAt: "2024-01-15T10:35:00.000Z"
+                withText:
+                  summary: Analysis with detected text
+                  value:
+                    success: true
+                    data:
+                      imageId: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                      userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                      filename: "b2c3d4e5.jpg"
+                      description: "A street corner showing a green street sign against a blue sky."
+                      keywords: ["street sign", "urban", "road", "navigation", "city"]
+                      detectedText: ["Main St", "Oak Ave", "One Way"]
+                      status: "completed"
+                      analyzedAt: "2024-01-15T11:00:00.000Z"
+                processing:
+                  summary: Still processing
+                  value:
+                    success: true
+                    data:
+                      imageId: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+                      userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                      filename: "c3d4e5f6.jpg"
+                      description: ""
+                      keywords: []
+                      detectedText: []
+                      status: "processing"
+                failed:
+                  summary: Failed analysis
+                  value:
+                    success: true
+                    data:
+                      imageId: "d4e5f6a7-b8c9-0123-def0-234567890123"
+                      userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
+                      filename: "d4e5f6a7.jpg"
+                      description: ""
+                      keywords: []
+                      detectedText: []
+                      status: "failed"
+                      error: "Image format not supported by AI model"
+                      analyzedAt: "2024-01-15T11:30:00.000Z"
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Unauthorized - valid token required"
+        '403':
+          description: Access denied - not the owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Access denied - you can only access your own analysis"
+        '404':
+          description: Analysis not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Analysis not found"
+

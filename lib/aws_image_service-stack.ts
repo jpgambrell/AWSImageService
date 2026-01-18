@@ -10,6 +10,8 @@ import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as path from 'path';
 
 /**
@@ -54,6 +56,99 @@ export class AwsImageServiceStack extends cdk.Stack {
     });
 
     // ============================================
+    // COGNITO - User Authentication
+    // ============================================
+    // Provides JWT-based authentication for web and mobile clients
+    // Manages user sign-up, sign-in, and token refresh
+
+    // User Pool - manages users and authentication
+    const userPool = new cognito.UserPool(this, 'ImageServiceUserPool', {
+      userPoolName: 'image-service-users',
+      // Self-service sign up enabled
+      selfSignUpEnabled: true,
+      // Email-based sign in
+      signInAliases: {
+        email: true,
+        username: false,
+      },
+      // Auto-verify email addresses
+      autoVerify: {
+        email: true,
+      },
+      // Standard attributes required during sign-up
+      standardAttributes: {
+        email: {
+          required: true,
+          mutable: true,
+        },
+        givenName: {
+          required: true,
+          mutable: true,
+        },
+        familyName: {
+          required: true,
+          mutable: true,
+        },
+      },
+      // Custom attributes
+      customAttributes: {
+        role: new cognito.StringAttribute({
+          mutable: true,
+        }),
+      },
+      // Password policy
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+      },
+      // Account recovery via email
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      // Allow deletion for dev/testing
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // User Pool Client - for web/mobile apps (public client, no secret)
+    const userPoolClient = new cognito.UserPoolClient(this, 'ImageServiceUserPoolClient', {
+      userPool,
+      userPoolClientName: 'image-service-web-client',
+      // Auth flows for web/mobile
+      authFlows: {
+        userPassword: true,        // Direct username/password auth
+        userSrp: true,             // Secure Remote Password protocol
+        custom: false,
+        adminUserPassword: false,
+      },
+      // Token validity periods
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(30),
+      // Prevent user existence errors (security best practice)
+      preventUserExistenceErrors: true,
+      // Enable token revocation
+      enableTokenRevocation: true,
+      // No client secret for public clients (web/mobile apps)
+      generateSecret: false,
+    });
+
+    // User Pool Groups for role-based access control
+    const adminGroup = new cognito.CfnUserPoolGroup(this, 'AdminGroup', {
+      userPoolId: userPool.userPoolId,
+      groupName: 'admin',
+      description: 'Administrators with access to all user data',
+      precedence: 0, // Higher priority (lower number)
+    });
+
+    const userGroup = new cognito.CfnUserPoolGroup(this, 'UserGroup', {
+      userPoolId: userPool.userPoolId,
+      groupName: 'user',
+      description: 'Regular users with access only to their own data',
+      precedence: 1,
+    });
+
+    // ============================================
     // DYNAMODB TABLES - Metadata Storage
     // ============================================
     // Replaces PostgreSQL from local setup
@@ -82,6 +177,14 @@ export class AwsImageServiceStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // Add Global Secondary Index for listing images by user
+    imagesTable.addGlobalSecondaryIndex({
+      indexName: 'userId-uploadedAt-index',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'uploadedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // Image Analysis table - stores AI analysis results
     const analysisTable = new dynamodb.Table(this, 'AnalysisTable', {
       tableName: 'image-service-analysis',
@@ -98,6 +201,14 @@ export class AwsImageServiceStack extends cdk.Stack {
     analysisTable.addGlobalSecondaryIndex({
       indexName: 'status-analyzedAt-index',
       partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'analyzedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Add GSI for listing analysis by user
+    analysisTable.addGlobalSecondaryIndex({
+      indexName: 'userId-analyzedAt-index',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'analyzedAt', type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
@@ -142,6 +253,9 @@ export class AwsImageServiceStack extends cdk.Stack {
       QUEUE_URL: imageQueue.queueUrl,
       // Bedrock model - Claude 3 Sonnet with vision capabilities
       BEDROCK_MODEL_ID: 'anthropic.claude-3-sonnet-20240229-v1:0',
+      // Cognito configuration
+      USER_POOL_ID: userPool.userPoolId,
+      USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
       NODE_OPTIONS: '--enable-source-maps',
     };
 
@@ -205,6 +319,25 @@ export class AwsImageServiceStack extends cdk.Stack {
       logRetention: logs.RetentionDays.ONE_WEEK,
     });
 
+    // --- Auth Lambda ---
+    // Handles authentication endpoints: signup, signin, refresh, password reset
+    const authLambda = new lambdaNodejs.NodejsFunction(this, 'AuthFunction', {
+      functionName: 'image-service-auth',
+      entry: path.join(__dirname, '../src/handlers/auth.ts'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+      environment: lambdaEnvironment,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: 'node20',
+      },
+      tracing: lambda.Tracing.ACTIVE,
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+
     // ============================================
     // IAM PERMISSIONS
     // ============================================
@@ -231,6 +364,23 @@ export class AwsImageServiceStack extends cdk.Stack {
     imageBucket.grantRead(queryLambda);
     imagesTable.grantReadData(queryLambda);
     analysisTable.grantReadData(queryLambda);
+
+    // Auth Lambda needs: Cognito permissions
+    authLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:SignUp',
+        'cognito-idp:InitiateAuth',
+        'cognito-idp:RespondToAuthChallenge',
+        'cognito-idp:ForgotPassword',
+        'cognito-idp:ConfirmForgotPassword',
+        'cognito-idp:ConfirmSignUp',
+        'cognito-idp:GetUser',
+        'cognito-idp:AdminGetUser',
+        'cognito-idp:ListUsers',
+      ],
+      resources: [userPool.userPoolArn],
+    }));
 
     // ============================================
     // SQS TRIGGER - Connect Queue to Lambda
@@ -281,43 +431,87 @@ export class AwsImageServiceStack extends cdk.Stack {
       },
     });
 
+    // Cognito Authorizer for protected routes
+    const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
+      cognitoUserPools: [userPool],
+      authorizerName: 'ImageServiceAuthorizer',
+      identitySource: 'method.request.header.Authorization',
+    });
+
+    // Method options for protected routes (requires JWT token)
+    const protectedMethodOptions: apigateway.MethodOptions = {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    };
+
     // --- API Routes ---
     // Mirrors the original Express routes
 
     // /api resource
     const apiResource = api.root.addResource('api');
 
-    // POST /api/upload - Upload an image
+    // POST /api/upload - Upload an image (PROTECTED)
     const uploadResource = apiResource.addResource('upload');
-    uploadResource.addMethod('POST', new apigateway.LambdaIntegration(uploadLambda));
+    uploadResource.addMethod('POST', new apigateway.LambdaIntegration(uploadLambda), protectedMethodOptions);
 
     // /api/images - Image operations
     const imagesResource = apiResource.addResource('images');
 
-    // GET /api/images - List all images
-    imagesResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
+    // GET /api/images - List all images (PROTECTED)
+    imagesResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
 
     // /api/images/{imageId}
     const singleImageResource = imagesResource.addResource('{imageId}');
 
-    // GET /api/images/{imageId} - Get image file
-    singleImageResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
+    // GET /api/images/{imageId} - Get image file (PROTECTED)
+    singleImageResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
 
-    // GET /api/images/{imageId}/info - Get image metadata
+    // GET /api/images/{imageId}/info - Get image metadata (PROTECTED)
     const imageInfoResource = singleImageResource.addResource('info');
-    imageInfoResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
+    imageInfoResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
 
     // /api/analysis - Analysis operations
     const analysisResource = apiResource.addResource('analysis');
 
-    // GET /api/analysis - List all analysis results
-    analysisResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
+    // GET /api/analysis - List all analysis results (PROTECTED)
+    analysisResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
 
-    // GET /api/analysis/{imageId} - Get analysis for specific image
+    // GET /api/analysis/{imageId} - Get analysis for specific image (PROTECTED)
     const singleAnalysisResource = analysisResource.addResource('{imageId}');
-    singleAnalysisResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
+    singleAnalysisResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
 
-    // Health check endpoint
+    // /api/auth - Authentication endpoints (PUBLIC)
+    const authResource = apiResource.addResource('auth');
+
+    // POST /api/auth/signup - Register new user
+    const signupResource = authResource.addResource('signup');
+    signupResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
+
+    // POST /api/auth/signin - Authenticate user
+    const signinResource = authResource.addResource('signin');
+    signinResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
+
+    // POST /api/auth/confirm - Confirm user registration
+    const confirmResource = authResource.addResource('confirm');
+    confirmResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
+
+    // POST /api/auth/refresh - Refresh access token
+    const refreshResource = authResource.addResource('refresh');
+    refreshResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
+
+    // POST /api/auth/forgot-password - Initiate password reset
+    const forgotPasswordResource = authResource.addResource('forgot-password');
+    forgotPasswordResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
+
+    // POST /api/auth/confirm-forgot-password - Complete password reset
+    const confirmForgotPasswordResource = authResource.addResource('confirm-forgot-password');
+    confirmForgotPasswordResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
+
+    // GET /api/auth/me - Get current user profile (PROTECTED)
+    const meResource = authResource.addResource('me');
+    meResource.addMethod('GET', new apigateway.LambdaIntegration(authLambda), protectedMethodOptions);
+
+    // Health check endpoint (PUBLIC)
     const healthResource = api.root.addResource('health');
     healthResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
 
@@ -353,6 +547,18 @@ export class AwsImageServiceStack extends cdk.Stack {
       value: imageQueue.queueUrl,
       description: 'SQS Queue URL',
       exportName: 'ImageServiceQueueUrl',
+    });
+
+    new cdk.CfnOutput(this, 'UserPoolId', {
+      value: userPool.userPoolId,
+      description: 'Cognito User Pool ID',
+      exportName: 'ImageServiceUserPoolId',
+    });
+
+    new cdk.CfnOutput(this, 'UserPoolClientId', {
+      value: userPoolClient.userPoolClientId,
+      description: 'Cognito User Pool Client ID',
+      exportName: 'ImageServiceUserPoolClientId',
     });
 
     // ============================================
@@ -480,6 +686,263 @@ export class AwsImageServiceStack extends cdk.Stack {
       value: budgetAndCostPolicy.managedPolicyArn,
       description: 'ARN of the Budget and Cost viewing policy - attach to jpg-developer user',
       exportName: 'BudgetAndCostViewPolicyArn',
+    });
+
+    // ============================================
+    // CLOUDWATCH DASHBOARD - Centralized Monitoring
+    // ============================================
+    // Creates a unified view of all service metrics in one dashboard
+
+    const dashboard = new cloudwatch.Dashboard(this, 'ImageServiceDashboard', {
+      dashboardName: 'ImageService-MainDashboard',
+    });
+
+    // --- Lambda Function Metrics ---
+    // Track invocations, errors, duration, and throttles for all Lambda functions
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Invocations',
+        width: 12,
+        height: 6,
+        left: [
+          uploadLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+          analysisLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+          queryLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+          authLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+        legendPosition: cloudwatch.LegendPosition.RIGHT,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Errors',
+        width: 12,
+        height: 6,
+        left: [
+          uploadLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.RED }),
+          analysisLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.ORANGE }),
+          queryLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.PURPLE }),
+          authLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.PINK }),
+        ],
+        legendPosition: cloudwatch.LegendPosition.RIGHT,
+      })
+    );
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Duration (ms)',
+        width: 12,
+        height: 6,
+        left: [
+          uploadLambda.metricDuration({ statistic: 'Average', period: cdk.Duration.minutes(5) }),
+          analysisLambda.metricDuration({ statistic: 'Average', period: cdk.Duration.minutes(5) }),
+          queryLambda.metricDuration({ statistic: 'Average', period: cdk.Duration.minutes(5) }),
+          authLambda.metricDuration({ statistic: 'Average', period: cdk.Duration.minutes(5) }),
+        ],
+        legendPosition: cloudwatch.LegendPosition.RIGHT,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Lambda Throttles',
+        width: 12,
+        height: 6,
+        left: [
+          uploadLambda.metricThrottles({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.RED }),
+          analysisLambda.metricThrottles({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.ORANGE }),
+          queryLambda.metricThrottles({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.PURPLE }),
+          authLambda.metricThrottles({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.PINK }),
+        ],
+        legendPosition: cloudwatch.LegendPosition.RIGHT,
+      })
+    );
+
+    // --- API Gateway Metrics ---
+    // Monitor API requests, latency, and errors
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway Requests',
+        width: 8,
+        height: 6,
+        left: [
+          api.metricCount({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway 4XX Errors',
+        width: 8,
+        height: 6,
+        left: [
+          api.metricClientError({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.ORANGE }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway 5XX Errors',
+        width: 8,
+        height: 6,
+        left: [
+          api.metricServerError({ statistic: 'Sum', period: cdk.Duration.minutes(5), color: cloudwatch.Color.RED }),
+        ],
+      })
+    );
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'API Gateway Latency',
+        width: 24,
+        height: 6,
+        left: [
+          api.metricLatency({ statistic: 'Average', period: cdk.Duration.minutes(5), label: 'Average' }),
+          api.metricLatency({ statistic: 'p99', period: cdk.Duration.minutes(5), label: 'p99', color: cloudwatch.Color.ORANGE }),
+        ],
+        legendPosition: cloudwatch.LegendPosition.RIGHT,
+      })
+    );
+
+    // --- SQS Queue Metrics ---
+    // Track message flow through the processing queue
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'SQS Messages Sent',
+        width: 8,
+        height: 6,
+        left: [
+          imageQueue.metricNumberOfMessagesSent({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'SQS Messages Visible (Queue Depth)',
+        width: 8,
+        height: 6,
+        left: [
+          imageQueue.metricApproximateNumberOfMessagesVisible({ statistic: 'Average', period: cdk.Duration.minutes(5) }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'SQS Messages in Dead Letter Queue',
+        width: 8,
+        height: 6,
+        left: [
+          deadLetterQueue.metricApproximateNumberOfMessagesVisible({ statistic: 'Average', period: cdk.Duration.minutes(5), color: cloudwatch.Color.RED }),
+        ],
+      })
+    );
+
+    // --- DynamoDB Metrics ---
+    // Monitor database read/write operations and throttles
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'DynamoDB Read Capacity (Images)',
+        width: 12,
+        height: 6,
+        left: [
+          imagesTable.metricConsumedReadCapacityUnits({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'DynamoDB Write Capacity (Images)',
+        width: 12,
+        height: 6,
+        left: [
+          imagesTable.metricConsumedWriteCapacityUnits({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+      })
+    );
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'DynamoDB Read Capacity (Analysis)',
+        width: 12,
+        height: 6,
+        left: [
+          analysisTable.metricConsumedReadCapacityUnits({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'DynamoDB Write Capacity (Analysis)',
+        width: 12,
+        height: 6,
+        left: [
+          analysisTable.metricConsumedWriteCapacityUnits({ statistic: 'Sum', period: cdk.Duration.minutes(5) }),
+        ],
+      })
+    );
+
+    // --- S3 Bucket Metrics ---
+    // Track storage operations
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'S3 Bucket Operations',
+        width: 24,
+        height: 6,
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'AWS/S3',
+            metricName: 'NumberOfObjects',
+            dimensionsMap: {
+              BucketName: imageBucket.bucketName,
+              StorageType: 'AllStorageTypes',
+            },
+            statistic: 'Average',
+            period: cdk.Duration.hours(1),
+            label: 'Number of Objects',
+          }),
+        ],
+        leftYAxis: {
+          label: 'Count',
+        },
+      })
+    );
+
+    // --- Summary Metrics ---
+    // High-level KPIs displayed as single-value widgets
+
+    dashboard.addWidgets(
+      new cloudwatch.SingleValueWidget({
+        title: 'Total API Requests (24h)',
+        width: 6,
+        height: 3,
+        metrics: [
+          api.metricCount({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Total Lambda Invocations (24h)',
+        width: 6,
+        height: 3,
+        metrics: [
+          uploadLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+          analysisLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+          queryLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+          authLambda.metricInvocations({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Total Errors (24h)',
+        width: 6,
+        height: 3,
+        metrics: [
+          uploadLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+          analysisLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+          queryLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+          authLambda.metricErrors({ statistic: 'Sum', period: cdk.Duration.hours(24) }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Messages in DLQ',
+        width: 6,
+        height: 3,
+        metrics: [
+          deadLetterQueue.metricApproximateNumberOfMessagesVisible({ statistic: 'Maximum', period: cdk.Duration.hours(1) }),
+        ],
+      })
+    );
+
+    new cdk.CfnOutput(this, 'DashboardUrl', {
+      value: `https://console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
+      description: 'CloudWatch Dashboard URL for monitoring',
+      exportName: 'ImageServiceDashboardUrl',
     });
   }
 }

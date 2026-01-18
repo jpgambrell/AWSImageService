@@ -4,6 +4,106 @@
  */
 
 // ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+/**
+ * User roles for access control
+ */
+export type UserRole = 'user' | 'admin';
+
+/**
+ * Represents a user in the system
+ * User data is stored in Cognito, not DynamoDB
+ */
+export interface User {
+  userId: string;           // Cognito sub (unique identifier)
+  email: string;
+  givenName: string;
+  familyName: string;
+  role: UserRole;
+}
+
+/**
+ * JWT claims extracted from Cognito tokens
+ * These claims are provided by API Gateway after token validation
+ */
+export interface JwtClaims {
+  sub: string;              // User ID (Cognito sub)
+  email: string;
+  'cognito:username': string;
+  'cognito:groups'?: string[];  // User groups (admin, user)
+  given_name?: string;
+  family_name?: string;
+  email_verified?: boolean;
+  iss: string;              // Token issuer
+  aud: string;              // Audience (client id)
+  token_use: 'id' | 'access';
+  auth_time: number;
+  exp: number;
+  iat: number;
+}
+
+/**
+ * Sign up request data
+ */
+export interface SignUpRequest {
+  email: string;
+  password: string;
+  givenName: string;
+  familyName: string;
+}
+
+/**
+ * Sign in request data
+ */
+export interface SignInRequest {
+  email: string;
+  password: string;
+}
+
+/**
+ * Confirm sign up request data
+ */
+export interface ConfirmSignUpRequest {
+  email: string;
+  confirmationCode: string;
+}
+
+/**
+ * Refresh token request data
+ */
+export interface RefreshTokenRequest {
+  refreshToken: string;
+}
+
+/**
+ * Forgot password request data
+ */
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+/**
+ * Confirm forgot password request data
+ */
+export interface ConfirmForgotPasswordRequest {
+  email: string;
+  confirmationCode: string;
+  newPassword: string;
+}
+
+/**
+ * Authentication response with tokens
+ */
+export interface AuthTokens {
+  accessToken: string;
+  idToken: string;
+  refreshToken?: string;
+  expiresIn: number;
+}
+
+// ============================================
 // IMAGE METADATA
 // ============================================
 
@@ -13,6 +113,7 @@
  */
 export interface ImageMetadata {
   imageId: string;          // UUID - Primary Key in DynamoDB
+  userId: string;           // Owner's Cognito sub - for multi-tenancy
   filename: string;         // Stored filename (uuid.ext)
   originalName: string;     // Original upload filename
   mimetype: string;         // MIME type (image/jpeg, etc.)
@@ -32,6 +133,7 @@ export interface ImageMetadata {
  */
 export interface ImageAnalysis {
   imageId: string;          // UUID - Primary Key (same as image)
+  userId: string;           // Owner's Cognito sub - for multi-tenancy
   filename: string;         // Image filename
   description: string;      // AI-generated description
   keywords: string[];       // Extracted keywords/tags
@@ -51,6 +153,7 @@ export interface ImageAnalysis {
  */
 export interface ImageUploadMessage {
   imageId: string;
+  userId: string;           // Owner's Cognito sub - for multi-tenancy
   filename: string;
   s3Key: string;
   mimetype: string;
@@ -77,6 +180,7 @@ export interface ApiResponse<T> {
  */
 export interface UploadResponseData {
   id: string;
+  userId: string;
   filename: string;
   originalName: string;
   mimetype: string;
