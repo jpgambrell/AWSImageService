@@ -72,21 +72,6 @@ components:
           format: password
           example: MySecureP@ss123
 
-    ConfirmSignUpRequest:
-      type: object
-      required:
-        - email
-        - confirmationCode
-      properties:
-        email:
-          type: string
-          format: email
-          example: user@example.com
-        confirmationCode:
-          type: string
-          description: 6-digit code sent to email
-          example: "123456"
-
     RefreshTokenRequest:
       type: object
       required:
@@ -193,30 +178,27 @@ paths:
       summary: Register new user
       description: |
         Create a new user account with email and password.
-        A confirmation code will be sent to the provided email address.
-        
-        After registration, the user must confirm their email using the 
-        `/api/auth/confirm` endpoint before they can sign in.
+        Users can sign in immediately after registration.
       operationId: signUp
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SignUpRequest'
+              $ref: "#/components/schemas/SignUpRequest"
             example:
               email: user@example.com
               password: MySecureP@ss123
               givenName: John
               familyName: Doe
       responses:
-        '201':
+        "201":
           description: User created successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
+                  - $ref: "#/components/schemas/ApiResponse"
                   - type: object
                     properties:
                       data:
@@ -225,77 +207,33 @@ paths:
                           userId:
                             type: string
                             format: uuid
-                          confirmed:
-                            type: boolean
-                            example: false
                           message:
                             type: string
-                            example: A confirmation code has been sent to your email
+                            example: Account created successfully. You can now sign in.
               example:
                 success: true
-                message: Account created. Please check your email to confirm your account.
+                message: Account created successfully. You can now sign in.
                 data:
                   userId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-                  confirmed: false
-                  message: A confirmation code has been sent to your email
-        '400':
+                  message: You can now sign in with your credentials
+        "400":
           description: Invalid request (missing fields or invalid password)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 success: false
                 error: "Password does not meet requirements"
-        '409':
+        "409":
           description: Email already exists
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 success: false
                 error: "An account with this email already exists"
-
-  /api/auth/confirm:
-    post:
-      tags:
-        - Auth
-      summary: Confirm email registration
-      description: |
-        Confirm user registration using the 6-digit code sent to email.
-        This must be done before the user can sign in.
-      operationId: confirmSignUp
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ConfirmSignUpRequest'
-            example:
-              email: user@example.com
-              confirmationCode: "123456"
-      responses:
-        '200':
-          description: Email confirmed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiResponse'
-              example:
-                success: true
-                message: Email confirmed successfully
-                data:
-                  message: You can now sign in with your email and password
-        '400':
-          description: Invalid or expired confirmation code
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                error: "Invalid confirmation code"
 
   /api/auth/signin:
     post:
@@ -305,7 +243,7 @@ paths:
       description: |
         Authenticate user with email and password.
         Returns JWT tokens for API authorization.
-        
+
         The `accessToken` should be included in the Authorization header for protected endpoints:
         ```
         Authorization: Bearer <accessToken>
@@ -316,22 +254,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SignInRequest'
+              $ref: "#/components/schemas/SignInRequest"
             example:
               email: user@example.com
               password: MySecureP@ss123
       responses:
-        '200':
+        "200":
           description: Authentication successful
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
+                  - $ref: "#/components/schemas/ApiResponse"
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/AuthTokens'
+                        $ref: "#/components/schemas/AuthTokens"
               example:
                 success: true
                 message: Signed in successfully
@@ -340,24 +278,15 @@ paths:
                   idToken: eyJraWQiOiJ...
                   refreshToken: eyJjdHkiOiJ...
                   expiresIn: 3600
-        '401':
+        "401":
           description: Invalid credentials
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
               example:
                 success: false
                 error: "Invalid email or password"
-        '403':
-          description: Email not confirmed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                success: false
-                error: "Please confirm your email before signing in"
 
   /api/auth/refresh:
     post:
@@ -367,7 +296,7 @@ paths:
       description: |
         Get new access and ID tokens using the refresh token.
         The refresh token is returned only on sign-in and has a 30-day validity.
-        
+
         Note: A new refresh token is NOT returned - continue using the existing one.
       operationId: refreshToken
       requestBody:
@@ -375,19 +304,19 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RefreshTokenRequest'
+              $ref: "#/components/schemas/RefreshTokenRequest"
       responses:
-        '200':
+        "200":
           description: Tokens refreshed successfully
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
+                  - $ref: "#/components/schemas/ApiResponse"
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/AuthTokens'
+                        $ref: "#/components/schemas/AuthTokens"
               example:
                 success: true
                 message: Token refreshed successfully
@@ -395,12 +324,12 @@ paths:
                   accessToken: eyJraWQiOiJ...
                   idToken: eyJraWQiOiJ...
                   expiresIn: 3600
-        '401':
+        "401":
           description: Invalid or expired refresh token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/auth/forgot-password:
     post:
@@ -416,25 +345,25 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ForgotPasswordRequest'
+              $ref: "#/components/schemas/ForgotPasswordRequest"
       responses:
-        '200':
+        "200":
           description: Password reset code sent
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: "#/components/schemas/ApiResponse"
               example:
                 success: true
                 message: Password reset initiated
                 data:
                   message: A confirmation code has been sent to your email
-        '404':
+        "404":
           description: User not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/auth/confirm-forgot-password:
     post:
@@ -448,25 +377,25 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ConfirmForgotPasswordRequest'
+              $ref: "#/components/schemas/ConfirmForgotPasswordRequest"
       responses:
-        '200':
+        "200":
           description: Password reset successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: "#/components/schemas/ApiResponse"
               example:
                 success: true
                 message: Password reset successfully
                 data:
                   message: You can now sign in with your new password
-        '400':
+        "400":
           description: Invalid or expired confirmation code
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /api/auth/me:
     get:
@@ -480,17 +409,17 @@ paths:
       security:
         - CognitoAuth: []
       responses:
-        '200':
+        "200":
           description: User profile retrieved
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
+                  - $ref: "#/components/schemas/ApiResponse"
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/User'
+                        $ref: "#/components/schemas/User"
               example:
                 success: true
                 data:
@@ -499,10 +428,9 @@ paths:
                   givenName: John
                   familyName: Doe
                   role: user
-        '401':
+        "401":
           description: Unauthorized - missing or invalid token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
+                $ref: "#/components/schemas/ErrorResponse"

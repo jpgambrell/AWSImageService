@@ -71,9 +71,9 @@ export class AwsImageServiceStack extends cdk.Stack {
         email: true,
         username: false,
       },
-      // Auto-verify email addresses
+      // Auto-verify email addresses - DISABLED for development
       autoVerify: {
-        email: true,
+        email: false,
       },
       // Standard attributes required during sign-up
       standardAttributes: {
