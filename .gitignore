@@ -7,4 +7,5 @@ node_modules
 .cdk.staging
 cdk.out
 
- .DS_Store
+# macOS system files
+.DS_Store

@@ -61,6 +61,22 @@ export class AwsImageServiceStack extends cdk.Stack {
     // Provides JWT-based authentication for web and mobile clients
     // Manages user sign-up, sign-in, and token refresh
 
+    // Pre Sign-up Lambda Trigger - auto-confirms users
+    const preSignUpTrigger = new lambdaNodejs.NodejsFunction(this, 'PreSignUpTrigger', {
+      functionName: 'image-service-cognito-presignup',
+      entry: path.join(__dirname, '../src/handlers/cognito-triggers.ts'),
+      handler: 'preSignUpHandler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: 'node20',
+      },
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+
     // User Pool - manages users and authentication
     const userPool = new cognito.UserPool(this, 'ImageServiceUserPool', {
       userPoolName: 'image-service-users',
@@ -108,6 +124,10 @@ export class AwsImageServiceStack extends cdk.Stack {
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       // Allow deletion for dev/testing
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      // Lambda triggers - auto-confirm users on signup
+      lambdaTriggers: {
+        preSignUp: preSignUpTrigger,
+      },
     });
 
     // User Pool Client - for web/mobile apps (public client, no secret)

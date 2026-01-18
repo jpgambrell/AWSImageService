@@ -2,9 +2,8 @@
  * Auth Lambda Handler
  * 
  * This Lambda handles all authentication endpoints:
- * - POST /api/auth/signup - Register new user
+ * - POST /api/auth/signup - Register new user (auto-confirmed)
  * - POST /api/auth/signin - Authenticate user
- * - POST /api/auth/confirm - Confirm user registration
  * - POST /api/auth/refresh - Refresh access token
  * - POST /api/auth/forgot-password - Initiate password reset
  * - POST /api/auth/confirm-forgot-password - Complete password reset
@@ -66,10 +65,6 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       return signin(event);
     }
 
-    if (path === '/api/auth/confirm' && httpMethod === 'POST') {
-      return confirmSignup(event);
-    }
-
     if (path === '/api/auth/refresh' && httpMethod === 'POST') {
       return refresh(event);
     }
@@ -102,9 +97,6 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     if (error instanceof Error) {
       if (error.name === 'UsernameExistsException') {
         return errorResponse(409, 'An account with this email already exists');
-      }
-      if (error.name === 'UserNotConfirmedException') {
-        return errorResponse(403, 'Please confirm your email before signing in');
       }
       if (error.name === 'NotAuthorizedException') {
         return errorResponse(401, 'Invalid email or password');
@@ -171,17 +163,12 @@ async function signup(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResul
     confirmed: result.UserConfirmed,
   }));
 
-  const response: ApiResponse<{ userId: string; confirmed: boolean; message: string }> = {
+  const response: ApiResponse<{ userId: string; message: string }> = {
     success: true,
-    message: result.UserConfirmed
-      ? 'Account created successfully'
-      : 'Account created. Please check your email to confirm your account.',
+    message: 'Account created successfully. You can now sign in.',
     data: {
       userId: result.UserSub!,
-      confirmed: result.UserConfirmed || false,
-      message: result.UserConfirmed
-        ? 'You can now sign in'
-        : 'A confirmation code has been sent to your email',
+      message: 'You can now sign in with your credentials',
     },
   };
 
