@@ -9,6 +9,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as path from 'path';
 
 /**
@@ -32,7 +33,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // ============================================
     // This replaces the shared Docker volume from the local setup
     // S3 provides durable, scalable storage with pay-per-use pricing
-    
+
     const imageBucket = new s3.Bucket(this, 'ImageBucket', {
       bucketName: `image-service-bucket-${this.account}-${this.region}`,
       // Allow bucket to be deleted when stack is destroyed (for dev/testing)
@@ -57,13 +58,13 @@ export class AwsImageServiceStack extends cdk.Stack {
     // ============================================
     // Replaces PostgreSQL from local setup
     // DynamoDB is serverless, pay-per-request, auto-scaling
-    
+
     // Images table - stores upload metadata
     const imagesTable = new dynamodb.Table(this, 'ImagesTable', {
       tableName: 'image-service-images',
-      partitionKey: { 
-        name: 'imageId', 
-        type: dynamodb.AttributeType.STRING 
+      partitionKey: {
+        name: 'imageId',
+        type: dynamodb.AttributeType.STRING
       },
       // On-demand billing = pay only for what you use (cost efficient for variable traffic)
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -84,9 +85,9 @@ export class AwsImageServiceStack extends cdk.Stack {
     // Image Analysis table - stores AI analysis results
     const analysisTable = new dynamodb.Table(this, 'AnalysisTable', {
       tableName: 'image-service-analysis',
-      partitionKey: { 
-        name: 'imageId', 
-        type: dynamodb.AttributeType.STRING 
+      partitionKey: {
+        name: 'imageId',
+        type: dynamodb.AttributeType.STRING
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -106,7 +107,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // ============================================
     // Replaces Kafka from local setup
     // SQS is simpler, fully managed, pay-per-message
-    
+
     // Dead Letter Queue - catches failed messages after retries
     const deadLetterQueue = new sqs.Queue(this, 'ImageProcessingDLQ', {
       queueName: 'image-processing-dlq',
@@ -132,7 +133,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // ============================================
     // Replaces Express services from local setup
     // Lambda is serverless - pay only when code runs
-    
+
     // Common Lambda configuration
     const lambdaEnvironment = {
       BUCKET_NAME: imageBucket.bucketName,
@@ -208,7 +209,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // IAM PERMISSIONS
     // ============================================
     // Grant each Lambda only the permissions it needs (least privilege)
-    
+
     // Upload Lambda needs: S3 write, DynamoDB write, SQS send
     imageBucket.grantPut(uploadLambda);
     imagesTable.grantWriteData(uploadLambda);
@@ -218,7 +219,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     imageBucket.grantRead(analysisLambda);
     imagesTable.grantReadWriteData(analysisLambda);
     analysisTable.grantWriteData(analysisLambda);
-    
+
     // Bedrock permissions (not available as a CDK grant method, so we add manually)
     analysisLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -235,7 +236,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // SQS TRIGGER - Connect Queue to Lambda
     // ============================================
     // When a message arrives in SQS, it triggers the Analysis Lambda
-    
+
     analysisLambda.addEventSource(new lambdaEventSources.SqsEventSource(imageQueue, {
       batchSize: 1, // Process one image at a time (AI calls are expensive)
       maxConcurrency: 5, // Limit concurrent executions to control costs
@@ -246,7 +247,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // ============================================
     // Replaces Express routes from local setup
     // API Gateway handles routing, CORS, throttling
-    
+
     const api = new apigateway.RestApi(this, 'ImageServiceApi', {
       restApiName: 'Image Service API',
       description: 'Serverless image upload and analysis service',
@@ -255,7 +256,7 @@ export class AwsImageServiceStack extends cdk.Stack {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: [
-          'Content-Type', 
+          'Content-Type',
           'Authorization',
           'X-Api-Key',
           'X-Amz-Date',
@@ -282,36 +283,36 @@ export class AwsImageServiceStack extends cdk.Stack {
 
     // --- API Routes ---
     // Mirrors the original Express routes
-    
+
     // /api resource
     const apiResource = api.root.addResource('api');
-    
+
     // POST /api/upload - Upload an image
     const uploadResource = apiResource.addResource('upload');
     uploadResource.addMethod('POST', new apigateway.LambdaIntegration(uploadLambda));
-    
+
     // /api/images - Image operations
     const imagesResource = apiResource.addResource('images');
-    
+
     // GET /api/images - List all images
     imagesResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
-    
+
     // /api/images/{imageId}
     const singleImageResource = imagesResource.addResource('{imageId}');
-    
+
     // GET /api/images/{imageId} - Get image file
     singleImageResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
-    
+
     // GET /api/images/{imageId}/info - Get image metadata
     const imageInfoResource = singleImageResource.addResource('info');
     imageInfoResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
-    
+
     // /api/analysis - Analysis operations
     const analysisResource = apiResource.addResource('analysis');
-    
+
     // GET /api/analysis - List all analysis results
     analysisResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
-    
+
     // GET /api/analysis/{imageId} - Get analysis for specific image
     const singleAnalysisResource = analysisResource.addResource('{imageId}');
     singleAnalysisResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda));
@@ -323,7 +324,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     // ============================================
     // OUTPUTS - Display important values after deploy
     // ============================================
-    
+
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: api.url,
       description: 'API Gateway URL',
@@ -352,6 +353,133 @@ export class AwsImageServiceStack extends cdk.Stack {
       value: imageQueue.queueUrl,
       description: 'SQS Queue URL',
       exportName: 'ImageServiceQueueUrl',
+    });
+
+    // ============================================
+    // BUDGET MONITORING - Track Bedrock Costs
+    // ============================================
+    // Monitors Amazon Bedrock spending and sends alerts when thresholds are reached
+
+    const bedrockBudget = new budgets.CfnBudget(this, 'BedrockBudget', {
+      budget: {
+        budgetName: 'BedrockMonthlyBudget',
+        budgetType: 'COST',
+        timeUnit: 'MONTHLY',
+        budgetLimit: {
+          amount: 50, // $50/month
+          unit: 'USD',
+        },
+        // Filter to track only Amazon Bedrock costs
+        costFilters: {
+          Service: ['Amazon Bedrock'],
+        },
+      },
+      // Set up notifications at different threshold levels
+      notificationsWithSubscribers: [
+        {
+          notification: {
+            notificationType: 'ACTUAL',
+            comparisonOperator: 'GREATER_THAN',
+            threshold: 80, // Alert at 80% of budget ($40)
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [
+            {
+              subscriptionType: 'EMAIL',
+              address: 'john.gambrell@gmail.com',
+            },
+          ],
+        },
+        {
+          notification: {
+            notificationType: 'ACTUAL',
+            comparisonOperator: 'GREATER_THAN',
+            threshold: 100, // Alert when budget is exceeded
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [
+            {
+              subscriptionType: 'EMAIL',
+              address: 'john.gambrell@gmail.com',
+            },
+          ],
+        },
+        {
+          notification: {
+            notificationType: 'FORECASTED',
+            comparisonOperator: 'GREATER_THAN',
+            threshold: 100, // Alert if forecasted to exceed budget
+            thresholdType: 'PERCENTAGE',
+          },
+          subscribers: [
+            {
+              subscriptionType: 'EMAIL',
+              address: 'john.gambrell@gmail.com',
+            },
+          ],
+        },
+      ],
+    });
+
+    new cdk.CfnOutput(this, 'BedrockBudgetName', {
+      value: 'BedrockMonthlyBudget',
+      description: 'Budget name for Bedrock cost monitoring',
+      exportName: 'BedrockBudgetName',
+    });
+
+    // ============================================
+    // IAM PERMISSIONS - Grant Cost & Budget Access
+    // ============================================
+    // Create a custom policy for budget and cost access
+    // Note: This policy needs to be manually attached to the jpg-developer user
+
+    const budgetAndCostPolicy = new iam.ManagedPolicy(this, 'BudgetAndCostViewPolicy', {
+      managedPolicyName: 'ImageService-BudgetAndCostView',
+      description: 'Allows viewing AWS Budgets, Cost Explorer, and billing information',
+      statements: [
+        // Budgets permissions
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'budgets:ViewBudget',
+            'budgets:DescribeBudgets',
+            'budgets:DescribeBudgetActionsForBudget',
+            'budgets:DescribeBudgetActionHistories',
+            'budgets:DescribeBudgetActionsForAccount',
+            'budgets:DescribeBudgetPerformanceHistory',
+          ],
+          resources: ['*'],
+        }),
+        // Cost Explorer permissions
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'ce:GetCostAndUsage',
+            'ce:GetCostForecast',
+            'ce:GetDimensionValues',
+            'ce:GetReservationUtilization',
+            'ce:GetTags',
+            'ce:GetCostCategories',
+          ],
+          resources: ['*'],
+        }),
+        // Billing permissions
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'aws-portal:ViewBilling',
+            'aws-portal:ViewUsage',
+            'cur:DescribeReportDefinitions',
+          ],
+          resources: ['*'],
+        }),
+      ],
+    });
+
+    new cdk.CfnOutput(this, 'CostPolicyArn', {
+      value: budgetAndCostPolicy.managedPolicyArn,
+      description: 'ARN of the Budget and Cost viewing policy - attach to jpg-developer user',
+      exportName: 'BudgetAndCostViewPolicyArn',
     });
   }
 }
