@@ -57,28 +57,29 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   try {
     // Route the request based on path
+    // Note: Must await async functions for try-catch to work properly
     if (path === '/api/auth/signup' && httpMethod === 'POST') {
-      return signup(event);
+      return await signup(event);
     }
 
     if (path === '/api/auth/signin' && httpMethod === 'POST') {
-      return signin(event);
+      return await signin(event);
     }
 
     if (path === '/api/auth/refresh' && httpMethod === 'POST') {
-      return refresh(event);
+      return await refresh(event);
     }
 
     if (path === '/api/auth/forgot-password' && httpMethod === 'POST') {
-      return forgotPassword(event);
+      return await forgotPassword(event);
     }
 
     if (path === '/api/auth/confirm-forgot-password' && httpMethod === 'POST') {
-      return confirmForgotPassword(event);
+      return await confirmForgotPassword(event);
     }
 
     if (path === '/api/auth/me' && httpMethod === 'GET') {
-      return getMe(event);
+      return await getMe(event);
     }
 
     return errorResponse(404, 'Route not found');
