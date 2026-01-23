@@ -1,0 +1,514 @@
+{
+  "info": {
+    "name": "AWS Image Service - Images & Analysis",
+    "description": "Image upload, management, and AI analysis endpoints for AWS Image Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "12345678"
+  },
+  "item": [
+    {
+      "name": "Images",
+      "item": [
+        {
+          "name": "1. Upload Image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data && jsonData.data.id) {",
+                  "        pm.environment.set('last_image_id', jsonData.data.id);",
+                  "        console.log('Image ID saved:', jsonData.data.id);",
+                  "    }",
+                  "    pm.test('Status code is 201', function () {",
+                  "        pm.response.to.have.status(201);",
+                  "    });",
+                  "    pm.test('Response has success field', function () {",
+                  "        pm.expect(jsonData.success).to.eql(true);",
+                  "    });",
+                  "    pm.test('Response has image data', function () {",
+                  "        pm.expect(jsonData.data.id).to.exist;",
+                  "        pm.expect(jsonData.data.filename).to.exist;",
+                  "        pm.expect(jsonData.data.path).to.exist;",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select an image file (JPEG, PNG, GIF, or WebP, max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{api_url}}/api/upload",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "upload"
+              ]
+            },
+            "description": "Upload an image for AI analysis.\n\n**Supported Formats:**\n- JPEG (image/jpeg)\n- PNG (image/png)\n- GIF (image/gif)\n- WebP (image/webp)\n\n**Max Size:** 10MB\n\nThe image will be:\n1. Stored in S3\n2. Metadata saved to DynamoDB\n3. Queued for AI analysis by Amazon Bedrock Claude Vision\n\n**IMPORTANT:** You must sign in first to get an ID token."
+          },
+          "response": []
+        },
+        {
+          "name": "2. List All Images",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Status code is 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Response has success field', function () {",
+                  "        pm.expect(jsonData.success).to.eql(true);",
+                  "    });",
+                  "    pm.test('Response has data array', function () {",
+                  "        pm.expect(jsonData.data).to.be.an('array');",
+                  "    });",
+                  "    if (jsonData.data.length > 0) {",
+                  "        pm.test('Images have required fields', function () {",
+                  "            const img = jsonData.data[0];",
+                  "            pm.expect(img.id).to.exist;",
+                  "            pm.expect(img.filename).to.exist;",
+                  "            pm.expect(img.uploadedAt).to.exist;",
+                  "        });",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/api/images",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "images"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "user-id-here",
+                  "description": "Filter by user ID (admin only)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List all images for the authenticated user.\n\n**User Access:**\n- Regular users see only their own images\n- Admin users see all images, or can filter by userId query param\n\n**Sorting:** Images are returned sorted by upload date (newest first)."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Image Metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Status code is 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Response has image metadata', function () {",
+                  "        pm.expect(jsonData.data.id).to.exist;",
+                  "        pm.expect(jsonData.data.filename).to.exist;",
+                  "        pm.expect(jsonData.data.mimetype).to.exist;",
+                  "        pm.expect(jsonData.data.size).to.exist;",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/api/images/{{last_image_id}}/info",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "images",
+                "{{last_image_id}}",
+                "info"
+              ]
+            },
+            "description": "Get metadata for a specific image without downloading the file.\n\n**Access Control:**\n- Users can only access metadata for their own images\n- Admin users can access any image's metadata\n\n**NOTE:** Replace {{last_image_id}} with an actual image UUID or upload an image first."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Download Image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 302) {",
+                  "    pm.test('Status code is 302 (redirect)', function () {",
+                  "        pm.response.to.have.status(302);",
+                  "    });",
+                  "    pm.test('Has Location header with S3 URL', function () {",
+                  "        pm.expect(pm.response.headers.get('Location')).to.exist;",
+                  "        const location = pm.response.headers.get('Location');",
+                  "        pm.expect(location).to.include('s3.amazonaws.com');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/api/images/{{last_image_id}}",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "images",
+                "{{last_image_id}}"
+              ]
+            },
+            "description": "Get/download the image file.\n\nThis endpoint returns a **302 redirect** to a presigned S3 URL.\nThe presigned URL is valid for 1 hour.\n\n**Access Control:**\n- Users can only download their own images\n- Admin users can download any image\n\n**NOTE:** Replace {{last_image_id}} with an actual image UUID or upload an image first.\n\n**TIP:** In Postman, disable \"Automatically follow redirects\" in Settings > General to see the 302 response, or leave it enabled to download the image directly."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Delete Image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Status code is 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Response indicates success', function () {",
+                  "        pm.expect(jsonData.success).to.eql(true);",
+                  "    });",
+                  "    pm.test('Response has confirmation message', function () {",
+                  "        pm.expect(jsonData.message).to.exist;",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/api/images/{{last_image_id}}",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "images",
+                "{{last_image_id}}"
+              ]
+            },
+            "description": "Permanently delete an image and all associated data.\n\n**This removes:**\n- The image file from S3 storage\n- Image metadata from the database\n- Any AI analysis results for this image\n\n**⚠️ This action cannot be undone.**\n\n**Access Control:**\n- Users can only delete their own images\n- Admin users can delete any image\n\n**NOTE:** Replace {{last_image_id}} with an actual image UUID or upload an image first."
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints for uploading, listing, downloading, and deleting images."
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        {
+          "name": "1. List All Analysis Results",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Status code is 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Response has success field', function () {",
+                  "        pm.expect(jsonData.success).to.eql(true);",
+                  "    });",
+                  "    pm.test('Response has data array', function () {",
+                  "        pm.expect(jsonData.data).to.be.an('array');",
+                  "    });",
+                  "    if (jsonData.data.length > 0) {",
+                  "        pm.test('Analysis has required fields', function () {",
+                  "            const analysis = jsonData.data[0];",
+                  "            pm.expect(analysis.imageId).to.exist;",
+                  "            pm.expect(analysis.status).to.exist;",
+                  "        });",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/api/analysis",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "analysis"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "user-id-here",
+                  "description": "Filter by user ID (admin only)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List all AI analysis results for the authenticated user.\n\n**User Access:**\n- Regular users see only their own analysis results\n- Admin users see all analysis, or can filter by userId query param\n\n**Analysis includes:**\n- AI-generated image description\n- Extracted keywords/tags\n- Detected text (OCR)\n- Processing status\n\n**Note:** Analysis happens asynchronously after upload. Check the status field:\n- `pending`: Queued for analysis\n- `processing`: Currently being analyzed\n- `completed`: Analysis finished\n- `failed`: Analysis encountered an error"
+          },
+          "response": []
+        },
+        {
+          "name": "2. Get Analysis for Specific Image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Status code is 200', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    pm.test('Response has analysis data', function () {",
+                  "        pm.expect(jsonData.data.imageId).to.exist;",
+                  "        pm.expect(jsonData.data.status).to.exist;",
+                  "    });",
+                  "    if (jsonData.data.status === 'completed') {",
+                  "        pm.test('Completed analysis has results', function () {",
+                  "            pm.expect(jsonData.data.description).to.exist;",
+                  "            pm.expect(jsonData.data.keywords).to.exist;",
+                  "        });",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{id_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/api/analysis/{{last_image_id}}",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "api",
+                "analysis",
+                "{{last_image_id}}"
+              ]
+            },
+            "description": "Get AI analysis results for a specific image.\n\n**Access Control:**\n- Users can only access their own analysis results\n- Admin users can access any analysis\n\n**Analysis Data (when completed):**\n- `description`: AI-generated description of the image\n- `keywords`: Extracted keywords and tags\n- `detectedText`: Any text found in the image (signs, addresses, etc.)\n- `analyzedAt`: Timestamp when analysis completed\n\n**NOTE:** Replace {{last_image_id}} with an actual image UUID or upload an image first.\n\n**TIP:** Analysis takes 5-30 seconds. If status is 'pending' or 'processing', wait and retry."
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints for retrieving AI analysis results powered by Amazon Bedrock Claude Vision."
+    },
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Service is healthy', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('healthy');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_url}}/health",
+              "host": [
+                "{{api_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Health check endpoint (public - no authentication required).\n\nReturns service status and timestamp."
+          },
+          "response": []
+        }
+      ],
+      "description": "Public health check endpoint to verify the service is running."
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{id_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "api_url",
+      "value": "https://0p19v2252j.execute-api.us-east-1.amazonaws.com/prod",
+      "type": "string"
+    }
+  ]
+}
+

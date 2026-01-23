@@ -1,11 +1,12 @@
 /**
  * Query Lambda Handler
  * 
- * This Lambda handles all GET requests:
+ * This Lambda handles all GET and DELETE requests:
  * - GET /health - Health check
  * - GET /api/images - List all images
  * - GET /api/images/{imageId} - Get/download a specific image
  * - GET /api/images/{imageId}/info - Get image metadata
+ * - DELETE /api/images/{imageId} - Delete an image and all associated data
  * - GET /api/analysis - List all analysis results
  * - GET /api/analysis/{imageId} - Get analysis for specific image
  * 
@@ -14,10 +15,10 @@
  */
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, ScanCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, ScanCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { ApiResponse, ImageMetadata, ImageAnalysis, JwtClaims } from '../types';
 import { extractUserClaims, isAdmin } from './auth';
 
@@ -90,6 +91,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const imageId = pathParameters?.imageId;
       if (!imageId) return errorResponse(400, 'Image ID required');
       return getImage(imageId, userId, userIsAdmin);
+    }
+
+    // Delete image
+    if (path.match(/^\/api\/images\/[^/]+$/) && httpMethod === 'DELETE') {
+      const imageId = pathParameters?.imageId;
+      if (!imageId) return errorResponse(400, 'Image ID required');
+      return deleteImage(imageId, userId, userIsAdmin);
     }
 
     // List all analysis results (filtered by user unless admin)
@@ -318,6 +326,110 @@ async function getImageInfo(imageId: string, userId: string, isAdminUser: boolea
     headers: corsHeaders(),
     body: JSON.stringify(response),
   };
+}
+
+/**
+ * Delete an image and all associated data
+ * DELETE /api/images/{imageId}
+ * 
+ * This removes:
+ * - The image file from S3
+ * - Image metadata from DynamoDB
+ * - Any AI analysis results from DynamoDB
+ * 
+ * Users can only delete their own images unless they are admin.
+ */
+async function deleteImage(imageId: string, userId: string, isAdminUser: boolean): Promise<APIGatewayProxyResult> {
+  console.log(JSON.stringify({
+    level: 'info',
+    message: 'Deleting image',
+    action: 'delete_image',
+    imageId,
+    userId,
+    isAdmin: isAdminUser,
+  }));
+
+  // First, get the image metadata to find the S3 key and verify ownership
+  const result = await docClient.send(new GetCommand({
+    TableName: IMAGES_TABLE,
+    Key: { imageId },
+  }));
+
+  const image = result.Item as ImageMetadata | undefined;
+
+  if (!image) {
+    return errorResponse(404, 'Image not found');
+  }
+
+  // Check ownership (unless admin)
+  if (!isAdminUser && image.userId && image.userId !== userId) {
+    return errorResponse(403, 'Access denied - you can only delete your own images');
+  }
+
+  try {
+    // Step 1: Delete the image file from S3
+    await s3Client.send(new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: image.s3Key,
+    }));
+
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Image deleted from S3',
+      action: 'delete_s3',
+      imageId,
+      s3Key: image.s3Key,
+    }));
+
+    // Step 2: Delete image metadata from DynamoDB
+    await docClient.send(new DeleteCommand({
+      TableName: IMAGES_TABLE,
+      Key: { imageId },
+    }));
+
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Image metadata deleted from DynamoDB',
+      action: 'delete_metadata',
+      imageId,
+    }));
+
+    // Step 3: Delete analysis data from DynamoDB (if exists)
+    // We don't check if it exists first - just attempt to delete
+    await docClient.send(new DeleteCommand({
+      TableName: ANALYSIS_TABLE,
+      Key: { imageId },
+    }));
+
+    console.log(JSON.stringify({
+      level: 'info',
+      message: 'Analysis data deleted from DynamoDB',
+      action: 'delete_analysis',
+      imageId,
+    }));
+
+    const response: ApiResponse<null> = {
+      success: true,
+      message: 'Image and all associated data deleted successfully',
+    };
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders(),
+      body: JSON.stringify(response),
+    };
+
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Failed to delete image',
+      action: 'delete_error',
+      imageId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }));
+
+    return errorResponse(500, 'Failed to delete image');
+  }
 }
 
 /**

@@ -380,10 +380,11 @@ export class AwsImageServiceStack extends cdk.Stack {
       resources: ['arn:aws:bedrock:*::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0'],
     }));
 
-    // Query Lambda needs: S3 read (for presigned URLs), DynamoDB read
+    // Query Lambda needs: S3 read (for presigned URLs) + delete, DynamoDB read + write (for delete operations)
     imageBucket.grantRead(queryLambda);
-    imagesTable.grantReadData(queryLambda);
-    analysisTable.grantReadData(queryLambda);
+    imageBucket.grantDelete(queryLambda);
+    imagesTable.grantReadWriteData(queryLambda);
+    analysisTable.grantReadWriteData(queryLambda);
 
     // Auth Lambda needs: Cognito permissions
     authLambda.addToRolePolicy(new iam.PolicyStatement({
@@ -485,6 +486,9 @@ export class AwsImageServiceStack extends cdk.Stack {
 
     // GET /api/images/{imageId} - Get image file (PROTECTED)
     singleImageResource.addMethod('GET', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
+
+    // DELETE /api/images/{imageId} - Delete image and all associated data (PROTECTED)
+    singleImageResource.addMethod('DELETE', new apigateway.LambdaIntegration(queryLambda), protectedMethodOptions);
 
     // GET /api/images/{imageId}/info - Get image metadata (PROTECTED)
     const imageInfoResource = singleImageResource.addResource('info');

@@ -366,6 +366,81 @@ paths:
                 success: false
                 error: "Image not found"
 
+    delete:
+      tags:
+        - Images
+      summary: Delete an image
+      description: |
+        Permanently delete an image and all associated data.
+        
+        This operation removes:
+        - The image file from S3 storage
+        - Image metadata from the database
+        - Any AI analysis results for this image
+        
+        **This action cannot be undone.**
+        
+        ## Access Control
+        - Users can only delete their own images
+        - Admin users can delete any image
+      operationId: deleteImage
+      security:
+        - CognitoAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          description: Image UUID to delete
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Image deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                success: true
+                message: "Image and all associated data deleted successfully"
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Unauthorized - valid token required"
+        '403':
+          description: Access denied - not the owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Access denied - you can only delete your own images"
+        '404':
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Image not found"
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Failed to delete image"
+
   /api/images/{imageId}/info:
     get:
       tags:

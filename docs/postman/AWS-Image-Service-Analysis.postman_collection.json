@@ -1,0 +1,423 @@
+{
+  "info": {
+    "name": "AWS Image Service - Analysis",
+    "description": "AI analysis results endpoints powered by Amazon Bedrock Claude Vision.\n\n## How It Works\n\nWhen an image is uploaded, it is automatically queued for AI analysis. The analysis extracts:\n- **Description**: Detailed natural language description (2-4 sentences)\n- **Keywords**: 5 keywords/tags describing main elements\n- **Detected Text**: OCR text found in the image (signs, labels, addresses, etc.)\n\n## Analysis Timeline\n\nAnalysis is asynchronous and takes 5-30 seconds:\n1. Image uploaded → Status: `pending`\n2. Analysis starts → Status: `processing`\n3. Analysis completes → Status: `completed` (with results)\n4. Or fails → Status: `failed` (with error message)\n\n## Authentication\n\nAll endpoints require JWT authentication using the ID token from sign-in.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "12345678"
+  },
+  "item": [
+    {
+      "name": "1. List All Analysis Results",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    ",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    ",
+              "    pm.test('Response has success field', function () {",
+              "        pm.expect(jsonData.success).to.eql(true);",
+              "    });",
+              "    ",
+              "    pm.test('Response has data array', function () {",
+              "        pm.expect(jsonData.data).to.be.an('array');",
+              "    });",
+              "    ",
+              "    if (jsonData.data.length > 0) {",
+              "        const analysis = jsonData.data[0];",
+              "        ",
+              "        pm.test('Analysis has required fields', function () {",
+              "            pm.expect(analysis.imageId).to.exist;",
+              "            pm.expect(analysis.userId).to.exist;",
+              "            pm.expect(analysis.status).to.exist;",
+              "        });",
+              "        ",
+              "        pm.test('Status is valid', function () {",
+              "            const validStatuses = ['pending', 'processing', 'completed', 'failed'];",
+              "            pm.expect(validStatuses).to.include(analysis.status);",
+              "        });",
+              "        ",
+              "        if (analysis.status === 'completed') {",
+              "            pm.test('Completed analysis has results', function () {",
+              "                pm.expect(analysis.description).to.exist;",
+              "                pm.expect(analysis.keywords).to.be.an('array');",
+              "                pm.expect(analysis.detectedText).to.be.an('array');",
+              "                pm.expect(analysis.analyzedAt).to.exist;",
+              "            });",
+              "            ",
+              "            console.log('Analysis completed:');",
+              "            console.log('  Description:', analysis.description);",
+              "            console.log('  Keywords:', analysis.keywords.join(', '));",
+              "            if (analysis.detectedText.length > 0) {",
+              "                console.log('  Detected Text:', analysis.detectedText.join(', '));",
+              "            }",
+              "        } else {",
+              "            console.log(`Analysis status: ${analysis.status}`);",
+              "            if (analysis.status === 'failed' && analysis.error) {",
+              "                console.log('  Error:', analysis.error);",
+              "            }",
+              "        }",
+              "        ",
+              "        // Save first image ID for single analysis test",
+              "        if (!pm.environment.get('last_analysis_id')) {",
+              "            pm.environment.set('last_analysis_id', analysis.imageId);",
+              "            console.log('Saved analysis ID:', analysis.imageId);",
+              "        }",
+              "    }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{id_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_url}}/api/analysis",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "analysis"
+          ],
+          "query": [
+            {
+              "key": "userId",
+              "value": "user-id-here",
+              "description": "Filter by specific user ID (admin only)",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "List all AI analysis results for the authenticated user.\n\n## User Access\n- **Regular users**: See only their own analysis results\n- **Admin users**: See all analysis, or filter by userId query param\n\n## Sorting\nResults are sorted by analysis date (newest first).\n\n## Status Values\nCheck the `status` field:\n- `completed`: Analysis ready with full results\n- `processing`: Still analyzing (retry in a few seconds)\n- `pending`: Analysis queued but not started\n- `failed`: Analysis failed (check error field)\n\n## What's Included\nFor completed analysis:\n- **description**: AI-generated image description (2-4 sentences)\n- **keywords**: 5 keywords/tags (e.g., \"sunset\", \"mountains\", \"landscape\")\n- **detectedText**: OCR text from image (signs, labels, addresses)\n- **analyzedAt**: Completion timestamp\n\n## Example Use Cases\n- Search images by keywords\n- Find images with specific text (e.g., business cards, street signs)\n- Generate captions for photo galleries\n- Content moderation and categorization"
+      },
+      "response": []
+    },
+    {
+      "name": "2. Get Analysis for Specific Image",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    ",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    ",
+              "    pm.test('Response has success field', function () {",
+              "        pm.expect(jsonData.success).to.eql(true);",
+              "    });",
+              "    ",
+              "    pm.test('Response has analysis data', function () {",
+              "        pm.expect(jsonData.data).to.exist;",
+              "        pm.expect(jsonData.data.imageId).to.exist;",
+              "        pm.expect(jsonData.data.status).to.exist;",
+              "    });",
+              "    ",
+              "    const analysis = jsonData.data;",
+              "    ",
+              "    pm.test('Status is valid', function () {",
+              "        const validStatuses = ['pending', 'processing', 'completed', 'failed'];",
+              "        pm.expect(validStatuses).to.include(analysis.status);",
+              "    });",
+              "    ",
+              "    console.log('═══════════════════════════════════════');",
+              "    console.log('📊 Analysis Status:', analysis.status.toUpperCase());",
+              "    console.log('═══════════════════════════════════════');",
+              "    ",
+              "    if (analysis.status === 'completed') {",
+              "        pm.test('Completed analysis has all fields', function () {",
+              "            pm.expect(analysis.description).to.exist;",
+              "            pm.expect(analysis.description).to.have.length.above(0);",
+              "            pm.expect(analysis.keywords).to.be.an('array');",
+              "            pm.expect(analysis.detectedText).to.be.an('array');",
+              "            pm.expect(analysis.analyzedAt).to.exist;",
+              "        });",
+              "        ",
+              "        console.log('');",
+              "        console.log('📝 Description:');",
+              "        console.log('  ', analysis.description);",
+              "        console.log('');",
+              "        console.log('🏷️  Keywords:', analysis.keywords.join(', '));",
+              "        ",
+              "        if (analysis.detectedText && analysis.detectedText.length > 0) {",
+              "            console.log('');",
+              "            console.log('🔤 Detected Text:');",
+              "            analysis.detectedText.forEach(text => {",
+              "                console.log('   •', text);",
+              "            });",
+              "        } else {",
+              "            console.log('');",
+              "            console.log('🔤 Detected Text: None');",
+              "        }",
+              "        ",
+              "        console.log('');",
+              "        console.log('⏰ Analyzed At:', analysis.analyzedAt);",
+              "        ",
+              "    } else if (analysis.status === 'processing') {",
+              "        console.log('');",
+              "        console.log('⏳ Analysis is still in progress...');",
+              "        console.log('   Please wait a few seconds and retry this request.');",
+              "        ",
+              "    } else if (analysis.status === 'pending') {",
+              "        console.log('');",
+              "        console.log('⏸️  Analysis is queued but not started yet...');",
+              "        console.log('   Please wait a moment and retry this request.');",
+              "        ",
+              "    } else if (analysis.status === 'failed') {",
+              "        console.log('');",
+              "        console.log('❌ Analysis failed!');",
+              "        if (analysis.error) {",
+              "            console.log('   Error:', analysis.error);",
+              "        }",
+              "        console.log('   Check CloudWatch logs for details.');",
+              "    }",
+              "    ",
+              "    console.log('═══════════════════════════════════════');",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{id_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_url}}/api/analysis/{{last_image_id}}",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "analysis",
+            "{{last_image_id}}"
+          ]
+        },
+        "description": "Get the AI analysis results for a specific image.\n\n## Access Control\n- **Users**: Can only access analysis for their own images\n- **Admins**: Can access any analysis\n\n## Status Values\n\n### ✅ completed\nAnalysis finished successfully. Response includes:\n- `description`: Detailed natural language description (2-4 sentences)\n- `keywords`: Array of 5 keywords/tags\n- `detectedText`: Array of OCR text found in image\n- `analyzedAt`: ISO timestamp\n\n### ⏳ processing\nAI is currently analyzing the image. Wait 5-10 seconds and retry.\n\n### ⏸️ pending\nAnalysis is queued but hasn't started. Usually brief. Wait a moment and retry.\n\n### ❌ failed\nAnalysis failed. Check the `error` field for details. Common causes:\n- Invalid image format\n- S3 read permissions issue\n- Bedrock service error\n- Image too large or corrupted\n\n## Example Response (Completed)\n\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"imageId\": \"abc-123\",\n    \"userId\": \"user-456\",\n    \"filename\": \"photo.jpg\",\n    \"description\": \"A stunning sunset over mountain peaks with vibrant orange and purple hues. The silhouettes of pine trees frame the foreground.\",\n    \"keywords\": [\"sunset\", \"mountains\", \"landscape\", \"nature\", \"sky\"],\n    \"detectedText\": [],\n    \"status\": \"completed\",\n    \"analyzedAt\": \"2024-01-15T10:35:00.000Z\"\n  }\n}\n```\n\n## Tips\n\n- **Timing**: Analysis typically takes 5-30 seconds after upload\n- **Polling**: If status is `processing`, wait 5 seconds before retrying\n- **OCR**: Detected text includes signs, labels, business cards, street names\n- **Variable**: Uses `{{last_image_id}}` - upload an image first to set this"
+      },
+      "response": []
+    },
+    {
+      "name": "3. Get Analysis (With Custom Image ID)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Same test script as \"Get Analysis for Specific Image\"",
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    const analysis = jsonData.data;",
+              "    ",
+              "    console.log('Analysis Status:', analysis.status);",
+              "    ",
+              "    if (analysis.status === 'completed') {",
+              "        console.log('Description:', analysis.description);",
+              "        console.log('Keywords:', analysis.keywords.join(', '));",
+              "        if (analysis.detectedText.length > 0) {",
+              "            console.log('Detected Text:', analysis.detectedText.join(', '));",
+              "        }",
+              "    }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{id_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_url}}/api/analysis/:imageId",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "analysis",
+            ":imageId"
+          ],
+          "variable": [
+            {
+              "key": "imageId",
+              "value": "your-image-id-here",
+              "description": "Replace with actual image UUID"
+            }
+          ]
+        },
+        "description": "Get analysis for a specific image using a custom image ID.\n\n**Usage:**\n1. Click on the request\n2. Go to the \"Params\" tab\n3. Replace `:imageId` value with your actual image UUID\n4. Send the request\n\nThis is useful when you want to check analysis for a specific image without using the `{{last_image_id}}` variable."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Poll Until Analysis Complete",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const jsonData = pm.response.json();",
+              "const analysis = jsonData.data;",
+              "const maxRetries = 20; // Maximum 20 retries (100 seconds)",
+              "const retryDelay = 5000; // Wait 5 seconds between retries",
+              "",
+              "if (!pm.environment.get('analysis_retry_count')) {",
+              "    pm.environment.set('analysis_retry_count', '0');",
+              "}",
+              "",
+              "let retryCount = parseInt(pm.environment.get('analysis_retry_count'));",
+              "",
+              "console.log(`Polling attempt ${retryCount + 1}/${maxRetries}`);",
+              "console.log('Status:', analysis.status);",
+              "",
+              "if (analysis.status === 'completed') {",
+              "    console.log('✅ Analysis completed!');",
+              "    console.log('Description:', analysis.description);",
+              "    console.log('Keywords:', analysis.keywords.join(', '));",
+              "    pm.environment.unset('analysis_retry_count');",
+              "    ",
+              "} else if (analysis.status === 'failed') {",
+              "    console.log('❌ Analysis failed:', analysis.error);",
+              "    pm.environment.unset('analysis_retry_count');",
+              "    ",
+              "} else if (retryCount < maxRetries) {",
+              "    // Still processing or pending - retry",
+              "    console.log(`⏳ Still ${analysis.status}... retrying in ${retryDelay/1000} seconds`);",
+              "    pm.environment.set('analysis_retry_count', String(retryCount + 1));",
+              "    ",
+              "    setTimeout(() => {}, retryDelay);",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "    ",
+              "} else {",
+              "    console.log('⚠️  Max retries reached. Analysis is taking longer than expected.');",
+              "    console.log('Check CloudWatch logs for issues.');",
+              "    pm.environment.unset('analysis_retry_count');",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Add delay between retries",
+              "const retryCount = pm.environment.get('analysis_retry_count');",
+              "if (retryCount && parseInt(retryCount) > 0) {",
+              "    console.log('Waiting 5 seconds before retry...');",
+              "    // Note: Actual delay is handled in the test script",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{id_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_url}}/api/analysis/{{last_image_id}}",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "analysis",
+            "{{last_image_id}}"
+          ]
+        },
+        "description": "Automatically polls the analysis endpoint until the analysis is complete or fails.\n\n## How It Works\n\n1. Sends GET request to `/api/analysis/{imageId}`\n2. Checks status:\n   - ✅ `completed`: Stops and displays results\n   - ❌ `failed`: Stops and displays error\n   - ⏳ `processing` or `pending`: Waits 5 seconds and retries\n3. Maximum 20 retries (100 seconds total)\n\n## Usage\n\n1. Upload an image first (to set `{{last_image_id}}`)\n2. Click \"Send\" on this request\n3. Watch the console for progress\n4. Postman will automatically retry until completion\n\n## Console Output\n\nYou'll see:\n```\nPolling attempt 1/20\nStatus: processing\n⏳ Still processing... retrying in 5 seconds\n\nPolling attempt 2/20\nStatus: processing\n⏳ Still processing... retrying in 5 seconds\n\nPolling attempt 3/20\nStatus: completed\n✅ Analysis completed!\nDescription: A stunning sunset...\nKeywords: sunset, mountains, landscape, nature, sky\n```\n\n## Note\n\nThis uses Postman's `setNextRequest()` to create a polling loop. To stop manually, click the \"Cancel\" button or wait for completion/failure/timeout."
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{id_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "api_url",
+      "value": "https://0p19v2252j.execute-api.us-east-1.amazonaws.com/prod",
+      "type": "string"
+    }
+  ]
+}
+
