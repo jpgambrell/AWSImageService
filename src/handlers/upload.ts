@@ -92,7 +92,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       return errorResponse(400, 'No file uploaded or invalid multipart data');
     }
 
-    const { filename: originalName, contentType, content } = formData;
+    const { filename: originalName, contentType, content, latitude, longitude, creationDate } = formData;
 
     // Validate file type
     if (!ALLOWED_MIME_TYPES.includes(contentType as any)) {
@@ -134,6 +134,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       originalName,
       contentType,
       size: content.length,
+      latitude,
+      longitude,
+      creationDate,
     }));
 
     // Step 1: Upload image to S3
@@ -171,6 +174,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       uploadedAt: now,
       s3Key,
       status: 'uploaded',
+      ...(latitude !== undefined && { latitude }),
+      ...(longitude !== undefined && { longitude }),
+      ...(creationDate && { creationDate }),
     };
 
     await docClient.send(new PutCommand({
@@ -195,6 +201,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       mimetype: contentType,
       uploadedAt: now,
       correlationId,
+      ...(latitude !== undefined && { latitude }),
+      ...(longitude !== undefined && { longitude }),
+      ...(creationDate && { creationDate }),
     };
 
     await sqsClient.send(new SendMessageCommand({
@@ -231,6 +240,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       size: content.length,
       uploadedAt: now,
       path: `/api/images/${imageId}`,
+      ...(latitude !== undefined && { latitude }),
+      ...(longitude !== undefined && { longitude }),
+      ...(creationDate && { creationDate }),
     };
 
     const response: ApiResponse<UploadResponseData> = {
@@ -271,12 +283,15 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
  * Parse multipart/form-data from API Gateway event
  * 
  * API Gateway sends the request body as base64-encoded when binary media types are enabled.
- * We need to decode it and parse the multipart boundary to extract the file.
+ * We need to decode it and parse the multipart boundary to extract the file and optional metadata.
  */
 function parseMultipartFormData(event: APIGatewayProxyEvent): {
   filename: string;
   contentType: string;
   content: Buffer;
+  latitude?: number;
+  longitude?: number;
+  creationDate?: string;
 } | null {
   if (!event.body) {
     return null;
@@ -317,6 +332,10 @@ function parseMultipartFormData(event: APIGatewayProxyEvent): {
     partCount: parts.length,
     partLengths: parts.map(p => p.length),
   }));
+
+  // Track file data and metadata fields
+  let fileData: { filename: string; contentType: string; content: Buffer } | null = null;
+  const metadata: { latitude?: number; longitude?: number; creationDate?: string } = {};
 
   for (const part of parts) {
     // Parse headers from this part
@@ -376,12 +395,47 @@ function parseMultipartFormData(event: APIGatewayProxyEvent): {
         cleanContent = cleanContent.slice(0, -2);
       }
 
-      return {
+      fileData = {
         filename,
         contentType: fileContentType,
         content: cleanContent,
       };
+    } else if (!filename) {
+      // This is a text field (not a file)
+      // Extract text value
+      let textValue = content.toString('utf8').trim();
+      
+      // Remove trailing \r\n if present
+      if (textValue.endsWith('\r\n')) {
+        textValue = textValue.slice(0, -2);
+      }
+
+      // Parse metadata fields
+      if (fieldName === 'latitude') {
+        const lat = parseFloat(textValue);
+        if (!isNaN(lat) && lat >= -90 && lat <= 90) {
+          metadata.latitude = lat;
+        }
+      } else if (fieldName === 'longitude') {
+        const lon = parseFloat(textValue);
+        if (!isNaN(lon) && lon >= -180 && lon <= 180) {
+          metadata.longitude = lon;
+        }
+      } else if (fieldName === 'creationDate') {
+        // Validate ISO 8601 format
+        if (textValue && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(textValue)) {
+          metadata.creationDate = textValue;
+        }
+      }
     }
+  }
+
+  // Return combined data if we found the file
+  if (fileData) {
+    return {
+      ...fileData,
+      ...metadata,
+    };
   }
 
   return null;

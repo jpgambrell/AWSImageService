@@ -85,6 +85,21 @@ components:
           type: string
           description: Processing status
           enum: [uploaded, processing, analyzed, failed]
+        latitude:
+          type: number
+          format: double
+          description: GPS latitude coordinate (optional)
+          example: 37.7749
+        longitude:
+          type: number
+          format: double
+          description: GPS longitude coordinate (optional)
+          example: -122.4194
+        creationDate:
+          type: string
+          format: date-time
+          description: When the image was taken (optional, ISO 8601)
+          example: "2024-01-15T10:30:00.000Z"
 
     UploadResponse:
       type: object
@@ -108,6 +123,21 @@ components:
           format: date-time
         path:
           type: string
+        latitude:
+          type: number
+          format: double
+          description: GPS latitude coordinate (optional)
+          example: 37.7749
+        longitude:
+          type: number
+          format: double
+          description: GPS longitude coordinate (optional)
+          example: -122.4194
+        creationDate:
+          type: string
+          format: date-time
+          description: When the image was taken (optional, ISO 8601)
+          example: "2024-01-15T10:30:00.000Z"
 
     ApiResponse:
       type: object
@@ -137,12 +167,12 @@ paths:
         - Images
       summary: Upload an image
       description: |
-        Upload an image for AI analysis.
+        Upload an image for AI analysis with optional location and creation date metadata.
         
         The image will be:
         1. Validated (type and size)
         2. Stored in S3 under the user's folder
-        3. Metadata saved to DynamoDB
+        3. Metadata saved to DynamoDB (including optional location/date)
         4. Queued for AI analysis by Amazon Bedrock Claude Vision
         
         ## Supported Formats
@@ -154,8 +184,15 @@ paths:
         ## File Size
         Maximum: 10MB
         
-        ## Form Field
-        The image must be uploaded with field name `image` or `file`.
+        ## Required Fields
+        - **image**: The image file to upload
+        
+        ## Optional Metadata Fields
+        - **latitude**: GPS latitude coordinate (-90 to 90)
+        - **longitude**: GPS longitude coordinate (-180 to 180)
+        - **creationDate**: When the image was taken (ISO 8601 format)
+        
+        Mobile clients can include these fields to preserve location and timestamp information.
       operationId: uploadImage
       security:
         - CognitoAuth: []
@@ -172,6 +209,21 @@ paths:
                   type: string
                   format: binary
                   description: Image file to upload
+                latitude:
+                  type: number
+                  format: double
+                  description: GPS latitude coordinate (optional, -90 to 90)
+                  example: 37.7749
+                longitude:
+                  type: number
+                  format: double
+                  description: GPS longitude coordinate (optional, -180 to 180)
+                  example: -122.4194
+                creationDate:
+                  type: string
+                  format: date-time
+                  description: When the image was taken (optional, ISO 8601)
+                  example: "2024-01-15T10:30:00.000Z"
             encoding:
               image:
                 contentType: image/jpeg, image/png, image/gif, image/webp
@@ -199,6 +251,9 @@ paths:
                   size: 1024000
                   uploadedAt: "2024-01-15T10:30:00.000Z"
                   path: "/api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                  latitude: 37.7749
+                  longitude: -122.4194
+                  creationDate: "2024-01-15T10:30:00.000Z"
         '400':
           description: Invalid file type or size exceeded
           content:

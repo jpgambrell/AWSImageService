@@ -60,6 +60,27 @@
                   "type": "file",
                   "src": [],
                   "description": "Select an image file (JPEG, PNG, GIF, or WebP, max 10MB)"
+                },
+                {
+                  "key": "latitude",
+                  "value": "37.7749",
+                  "type": "text",
+                  "description": "GPS latitude coordinate (optional, -90 to 90)",
+                  "disabled": true
+                },
+                {
+                  "key": "longitude",
+                  "value": "-122.4194",
+                  "type": "text",
+                  "description": "GPS longitude coordinate (optional, -180 to 180)",
+                  "disabled": true
+                },
+                {
+                  "key": "creationDate",
+                  "value": "2024-01-15T10:30:00.000Z",
+                  "type": "text",
+                  "description": "When the image was taken (optional, ISO 8601 format)",
+                  "disabled": true
                 }
               ]
             },
@@ -73,7 +94,7 @@
                 "upload"
               ]
             },
-            "description": "Upload an image for AI analysis.\n\n**Supported Formats:**\n- JPEG (image/jpeg)\n- PNG (image/png)\n- GIF (image/gif)\n- WebP (image/webp)\n\n**Max Size:** 10MB\n\nThe image will be:\n1. Stored in S3\n2. Metadata saved to DynamoDB\n3. Queued for AI analysis by Amazon Bedrock Claude Vision\n\n**IMPORTANT:** You must sign in first to get an ID token."
+            "description": "Upload an image for AI analysis with optional location and creation date metadata.\n\n**Supported Formats:**\n- JPEG (image/jpeg)\n- PNG (image/png)\n- GIF (image/gif)\n- WebP (image/webp)\n\n**Max Size:** 10MB\n\nThe image will be:\n1. Stored in S3\n2. Metadata saved to DynamoDB (including optional location/date)\n3. Queued for AI analysis by Amazon Bedrock Claude Vision\n\n**Optional Metadata:**\nEnable the optional form fields to include:\n- **latitude**: GPS latitude coordinate (e.g., 37.7749)\n- **longitude**: GPS longitude coordinate (e.g., -122.4194)\n- **creationDate**: When image was taken (ISO 8601, e.g., 2024-01-15T10:30:00.000Z)\n\n**IMPORTANT:** You must sign in first to get an ID token."
           },
           "response": []
         },

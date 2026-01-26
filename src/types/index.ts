@@ -113,6 +113,9 @@ export interface ImageMetadata {
   uploadedAt: string;       // ISO timestamp
   s3Key: string;            // S3 object key for retrieval
   status: 'uploaded' | 'processing' | 'analyzed' | 'failed';
+  latitude?: number;        // GPS latitude (optional)
+  longitude?: number;       // GPS longitude (optional)
+  creationDate?: string;    // When image was taken (optional, ISO 8601)
 }
 
 // ============================================
@@ -151,6 +154,9 @@ export interface ImageUploadMessage {
   mimetype: string;
   uploadedAt: string;
   correlationId: string;    // For tracing through the system
+  latitude?: number;        // GPS latitude (optional)
+  longitude?: number;       // GPS longitude (optional)
+  creationDate?: string;    // When image was taken (optional, ISO 8601)
 }
 
 // ============================================
@@ -179,6 +185,9 @@ export interface UploadResponseData {
   size: number;
   uploadedAt: string;
   path: string;             // API path to retrieve the image
+  latitude?: number;        // GPS latitude (optional)
+  longitude?: number;       // GPS longitude (optional)
+  creationDate?: string;    // When image was taken (optional, ISO 8601)
 }
 
 // ============================================
@@ -192,6 +201,9 @@ export interface ParsedMultipartData {
   filename: string;
   contentType: string;
   content: Buffer;
+  latitude?: number;
+  longitude?: number;
+  creationDate?: string;
 }
 
 // ============================================
