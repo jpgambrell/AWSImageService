@@ -161,7 +161,7 @@
                 }
               ]
             },
-            "description": "List all images for the authenticated user.\n\n**User Access:**\n- Regular users see only their own images\n- Admin users see all images, or can filter by userId query param\n\n**Sorting:** Images are returned sorted by upload date (newest first)."
+            "description": "List all images for the authenticated user.\n\n**User Access:**\n- Regular users see only their own images\n- Admin users see all images, or can filter by userId query param\n\n**Sorting:** Images are returned sorted by upload date (newest first).\n\n**Metadata Included:**\nEach image includes optional location and creation date metadata if it was provided during upload:\n- `latitude`: GPS latitude coordinate\n- `longitude`: GPS longitude coordinate\n- `creationDate`: When the image was taken (ISO 8601)"
           },
           "response": []
         },
@@ -214,7 +214,7 @@
                 "info"
               ]
             },
-            "description": "Get metadata for a specific image without downloading the file.\n\n**Access Control:**\n- Users can only access metadata for their own images\n- Admin users can access any image's metadata\n\n**NOTE:** Replace {{last_image_id}} with an actual image UUID or upload an image first."
+            "description": "Get metadata for a specific image without downloading the file.\n\n**Access Control:**\n- Users can only access metadata for their own images\n- Admin users can access any image's metadata\n\n**Metadata Included:**\nIncludes optional location and creation date if provided during upload:\n- `latitude`: GPS latitude coordinate\n- `longitude`: GPS longitude coordinate\n- `creationDate`: When the image was taken (ISO 8601)\n\n**NOTE:** Replace {{last_image_id}} with an actual image UUID or upload an image first."
           },
           "response": []
         },

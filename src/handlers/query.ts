@@ -199,6 +199,9 @@ async function listImages(userId: string, isAdminUser: boolean): Promise<APIGate
     uploadedAt: img.uploadedAt,
     path: `/api/images/${img.imageId}`,
     status: img.status,
+    ...(img.latitude !== undefined && { latitude: img.latitude }),
+    ...(img.longitude !== undefined && { longitude: img.longitude }),
+    ...(img.creationDate && { creationDate: img.creationDate }),
   }));
 
   const response: ApiResponse<typeof responseImages> = {
@@ -314,6 +317,9 @@ async function getImageInfo(imageId: string, userId: string, isAdminUser: boolea
     uploadedAt: image.uploadedAt,
     path: `/api/images/${image.imageId}`,
     status: image.status,
+    ...(image.latitude !== undefined && { latitude: image.latitude }),
+    ...(image.longitude !== undefined && { longitude: image.longitude }),
+    ...(image.creationDate && { creationDate: image.creationDate }),
   };
 
   const response: ApiResponse<typeof responseData> = {

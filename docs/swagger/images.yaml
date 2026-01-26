@@ -306,6 +306,12 @@ paths:
         
         ## Sorting
         Images are returned sorted by upload date (newest first).
+        
+        ## Metadata
+        Each image includes optional location and creation date metadata if it was provided during upload:
+        - `latitude`: GPS latitude coordinate
+        - `longitude`: GPS longitude coordinate
+        - `creationDate`: When the image was taken (ISO 8601)
       operationId: listImages
       security:
         - CognitoAuth: []
@@ -345,6 +351,9 @@ paths:
                     uploadedAt: "2024-01-15T10:30:00.000Z"
                     path: "/api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                     status: "analyzed"
+                    latitude: 37.7749
+                    longitude: -122.4194
+                    creationDate: "2024-01-15T10:30:00.000Z"
                   - id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
                     userId: "u1s2e3r4-i5d6-7890-abcd-ef1234567890"
                     filename: "b2c3d4e5.png"
@@ -507,6 +516,12 @@ paths:
         ## Access Control
         - Users can only access metadata for their own images
         - Admin users can access any image's metadata
+        
+        ## Metadata Included
+        Returns all image metadata including optional location and creation date if provided during upload:
+        - `latitude`: GPS latitude coordinate
+        - `longitude`: GPS longitude coordinate
+        - `creationDate`: When the image was taken (ISO 8601)
       operationId: getImageInfo
       security:
         - CognitoAuth: []
@@ -542,6 +557,9 @@ paths:
                   uploadedAt: "2024-01-15T10:30:00.000Z"
                   path: "/api/images/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                   status: "analyzed"
+                  latitude: 37.7749
+                  longitude: -122.4194
+                  creationDate: "2024-01-15T10:30:00.000Z"
         '401':
           description: Unauthorized
           content:
