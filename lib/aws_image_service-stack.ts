@@ -515,10 +515,6 @@ export class AwsImageServiceStack extends cdk.Stack {
     const signinResource = authResource.addResource('signin');
     signinResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
 
-    // POST /api/auth/confirm - Confirm user registration
-    const confirmResource = authResource.addResource('confirm');
-    confirmResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
-
     // POST /api/auth/refresh - Refresh access token
     const refreshResource = authResource.addResource('refresh');
     refreshResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));

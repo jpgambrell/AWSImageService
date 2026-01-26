@@ -63,14 +63,6 @@ export interface SignInRequest {
 }
 
 /**
- * Confirm sign up request data
- */
-export interface ConfirmSignUpRequest {
-  email: string;
-  confirmationCode: string;
-}
-
-/**
  * Refresh token request data
  */
 export interface RefreshTokenRequest {

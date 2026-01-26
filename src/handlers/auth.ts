@@ -2,7 +2,7 @@
  * Auth Lambda Handler
  * 
  * This Lambda handles all authentication endpoints:
- * - POST /api/auth/signup - Register new user (auto-confirmed)
+ * - POST /api/auth/signup - Register new user (auto-confirmed via Cognito trigger)
  * - POST /api/auth/signin - Authenticate user
  * - POST /api/auth/refresh - Refresh access token
  * - POST /api/auth/forgot-password - Initiate password reset
@@ -15,7 +15,6 @@ import {
   CognitoIdentityProviderClient,
   SignUpCommand,
   InitiateAuthCommand,
-  ConfirmSignUpCommand,
   ForgotPasswordCommand,
   ConfirmForgotPasswordCommand,
   GetUserCommand,
@@ -25,7 +24,6 @@ import {
   ApiResponse,
   SignUpRequest,
   SignInRequest,
-  ConfirmSignUpRequest,
   RefreshTokenRequest,
   ForgotPasswordRequest,
   ConfirmForgotPasswordRequest,
@@ -231,54 +229,6 @@ async function signin(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResul
     success: true,
     message: 'Signed in successfully',
     data: tokens,
-  };
-
-  return {
-    statusCode: 200,
-    headers: corsHeaders(),
-    body: JSON.stringify(response),
-  };
-}
-
-/**
- * Confirm user registration
- * POST /api/auth/confirm
- */
-async function confirmSignup(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const body = parseBody<ConfirmSignUpRequest>(event.body);
-
-  if (!body || !body.email || !body.confirmationCode) {
-    return errorResponse(400, 'Email and confirmationCode are required');
-  }
-
-  console.log(JSON.stringify({
-    level: 'info',
-    message: 'Confirming user',
-    action: 'confirm_signup',
-    email: body.email,
-  }));
-
-  const command = new ConfirmSignUpCommand({
-    ClientId: USER_POOL_CLIENT_ID,
-    Username: body.email,
-    ConfirmationCode: body.confirmationCode,
-  });
-
-  await cognitoClient.send(command);
-
-  console.log(JSON.stringify({
-    level: 'info',
-    message: 'User confirmed',
-    action: 'confirm_signup_complete',
-    email: body.email,
-  }));
-
-  const response: ApiResponse<{ message: string }> = {
-    success: true,
-    message: 'Email confirmed successfully',
-    data: {
-      message: 'You can now sign in with your email and password',
-    },
   };
 
   return {
