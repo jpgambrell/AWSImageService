@@ -116,6 +116,38 @@ components:
           minLength: 8
           example: MyNewSecureP@ss456
 
+    UpgradeAccountRequest:
+      type: object
+      required:
+        - email
+        - password
+        - givenName
+        - familyName
+      properties:
+        email:
+          type: string
+          format: email
+          description: New email address for the upgraded account
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          description: |
+            Password for the upgraded account. Must be at least 8 characters and contain:
+            - At least one lowercase letter
+            - At least one uppercase letter
+            - At least one digit
+          example: MySecureP@ss123
+        givenName:
+          type: string
+          description: User's first name
+          example: John
+        familyName:
+          type: string
+          description: User's last name
+          example: Doe
+
     AuthTokens:
       type: object
       properties:
@@ -437,3 +469,144 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - Auth
+      summary: Delete user account
+      description: |
+        Permanently delete the authenticated user's account and all associated data.
+        
+        This operation deletes:
+        - All images stored in S3
+        - All image metadata from the database
+        - All analysis results from the database
+        - The Cognito user account
+        
+        **Warning**: This action is irreversible.
+      operationId: deleteMe
+      security:
+        - CognitoAuth: []
+      responses:
+        "200":
+          description: Account deleted successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+              example:
+                success: true
+                message: Account deleted successfully
+                data:
+                  message: Your account and all associated data have been permanently deleted
+        "401":
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to delete account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/auth/upgrade:
+    patch:
+      tags:
+        - Auth
+      summary: Upgrade guest account
+      description: |
+        Upgrade a guest account (emails matching guest_*@guidepost.guest) to a regular account.
+        
+        This operation:
+        - Updates the user's email to a real email address
+        - Sets a new password
+        - Updates the user's name
+        - Returns new authentication tokens
+        
+        Only guest accounts can be upgraded. Regular accounts will receive a 400 error.
+      operationId: upgradeAccount
+      security:
+        - CognitoAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradeAccountRequest"
+            example:
+              email: user@example.com
+              password: NewSecureP@ss123
+              givenName: John
+              familyName: Doe
+      responses:
+        "200":
+          description: Account upgraded successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiResponse"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          tokens:
+                            $ref: "#/components/schemas/AuthTokens"
+              example:
+                success: true
+                message: Account upgraded successfully
+                data:
+                  tokens:
+                    accessToken: eyJraWQiOiJ...
+                    idToken: eyJraWQiOiJ...
+                    refreshToken: eyJjdHkiOiJ...
+                    expiresIn: 3600
+        "400":
+          description: Invalid request or not a guest account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                notGuest:
+                  summary: Not a guest account
+                  value:
+                    success: false
+                    error: "Only guest accounts can be upgraded"
+                missingFields:
+                  summary: Missing required fields
+                  value:
+                    success: false
+                    error: "Email, password, givenName, and familyName are required"
+                invalidPassword:
+                  summary: Password requirements not met
+                  value:
+                    success: false
+                    error: "Password does not meet requirements"
+        "401":
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                success: false
+                error: "An account with this email already exists"

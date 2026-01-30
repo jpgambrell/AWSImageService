@@ -327,6 +327,137 @@
         "description": "Complete password reset using the confirmation code sent to email.\n\nReplace '123456' with the actual code received via email.\n\nNew password must meet the same requirements:\n- At least 8 characters\n- At least one lowercase letter\n- At least one uppercase letter\n- At least one digit"
       },
       "response": []
+    },
+    {
+      "name": "7. Upgrade Guest Account",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    if (jsonData.data && jsonData.data.tokens) {",
+              "        // Save new tokens to environment variables",
+              "        if (jsonData.data.tokens.accessToken) {",
+              "            pm.environment.set('access_token', jsonData.data.tokens.accessToken);",
+              "            console.log('New access token saved');",
+              "        }",
+              "        if (jsonData.data.tokens.idToken) {",
+              "            pm.environment.set('id_token', jsonData.data.tokens.idToken);",
+              "            console.log('New ID token saved');",
+              "        }",
+              "        if (jsonData.data.tokens.refreshToken) {",
+              "            pm.environment.set('refresh_token', jsonData.data.tokens.refreshToken);",
+              "            console.log('New refresh token saved');",
+              "        }",
+              "    }",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Response has new tokens', function () {",
+              "        pm.expect(jsonData.data.tokens.accessToken).to.exist;",
+              "        pm.expect(jsonData.data.tokens.idToken).to.exist;",
+              "        pm.expect(jsonData.data.tokens.refreshToken).to.exist;",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{id_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"NewSecureP@ss123\",\n  \"givenName\": \"John\",\n  \"familyName\": \"Doe\"\n}"
+        },
+        "url": {
+          "raw": "{{api_url}}/api/auth/upgrade",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "upgrade"
+          ]
+        },
+        "description": "Upgrade a guest account to a regular account.\n\nThis endpoint is only available for guest accounts (emails matching guest_*@guidepost.guest).\n\nProvide:\n- New email address\n- New password (must meet password requirements)\n- Given name\n- Family name\n\nReturns new tokens with the updated user information.\n\nNote: Make sure you're signed in as a guest user before calling this endpoint."
+      },
+      "response": []
+    },
+    {
+      "name": "8. Delete Account",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const jsonData = pm.response.json();",
+              "    pm.test('Status code is 200', function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test('Account deleted successfully', function () {",
+              "        pm.expect(jsonData.success).to.eql(true);",
+              "        pm.expect(jsonData.message).to.include('deleted');",
+              "    });",
+              "    // Clear tokens from environment",
+              "    pm.environment.unset('access_token');",
+              "    pm.environment.unset('id_token');",
+              "    pm.environment.unset('refresh_token');",
+              "    pm.environment.unset('userId');",
+              "    console.log('Tokens cleared from environment');",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{id_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{api_url}}/api/auth/me",
+          "host": [
+            "{{api_url}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "me"
+          ]
+        },
+        "description": "Permanently delete the authenticated user's account and all associated data.\n\nWARNING: This action is irreversible!\n\nThis operation deletes:\n- All images stored in S3\n- All image metadata from the database\n- All analysis results from the database\n- The Cognito user account\n\nMake sure you're signed in before calling this endpoint."
+      },
+      "response": []
     }
   ],
   "variable": [

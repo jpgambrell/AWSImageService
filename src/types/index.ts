@@ -86,6 +86,17 @@ export interface ConfirmForgotPasswordRequest {
 }
 
 /**
+ * Upgrade guest account request data
+ * Used to convert a guest account (guest_*@guidepost.guest) to a regular account
+ */
+export interface UpgradeAccountRequest {
+  email: string;
+  password: string;
+  givenName: string;
+  familyName: string;
+}
+
+/**
  * Authentication response with tokens
  */
 export interface AuthTokens {

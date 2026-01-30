@@ -386,7 +386,7 @@ export class AwsImageServiceStack extends cdk.Stack {
     imagesTable.grantReadWriteData(queryLambda);
     analysisTable.grantReadWriteData(queryLambda);
 
-    // Auth Lambda needs: Cognito permissions
+    // Auth Lambda needs: Cognito permissions (including admin operations for delete/upgrade)
     authLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -399,9 +399,21 @@ export class AwsImageServiceStack extends cdk.Stack {
         'cognito-idp:GetUser',
         'cognito-idp:AdminGetUser',
         'cognito-idp:ListUsers',
+        // Additional permissions for account deletion and upgrade
+        'cognito-idp:AdminDeleteUser',
+        'cognito-idp:AdminUpdateUserAttributes',
+        'cognito-idp:AdminSetUserPassword',
       ],
       resources: [userPool.userPoolArn],
     }));
+
+    // Auth Lambda needs: S3 permissions for deleting user images
+    imageBucket.grantRead(authLambda);
+    imageBucket.grantDelete(authLambda);
+
+    // Auth Lambda needs: DynamoDB permissions for deleting user data
+    imagesTable.grantReadWriteData(authLambda);
+    analysisTable.grantReadWriteData(authLambda);
 
     // ============================================
     // SQS TRIGGER - Connect Queue to Lambda
@@ -528,8 +540,14 @@ export class AwsImageServiceStack extends cdk.Stack {
     confirmForgotPasswordResource.addMethod('POST', new apigateway.LambdaIntegration(authLambda));
 
     // GET /api/auth/me - Get current user profile (PROTECTED)
+    // DELETE /api/auth/me - Delete user account and all data (PROTECTED)
     const meResource = authResource.addResource('me');
     meResource.addMethod('GET', new apigateway.LambdaIntegration(authLambda), protectedMethodOptions);
+    meResource.addMethod('DELETE', new apigateway.LambdaIntegration(authLambda), protectedMethodOptions);
+
+    // PATCH /api/auth/upgrade - Upgrade guest account to regular account (PROTECTED)
+    const upgradeResource = authResource.addResource('upgrade');
+    upgradeResource.addMethod('PATCH', new apigateway.LambdaIntegration(authLambda), protectedMethodOptions);
 
     // Health check endpoint (PUBLIC)
     const healthResource = api.root.addResource('health');
