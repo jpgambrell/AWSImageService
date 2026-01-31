@@ -12,6 +12,7 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as budgets from 'aws-cdk-lib/aws-budgets';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as ses from 'aws-cdk-lib/aws-ses';
 import * as path from 'path';
 
 /**
@@ -56,6 +57,26 @@ export class AwsImageServiceStack extends cdk.Stack {
     });
 
     // ============================================
+    // SES - Email Configuration for Cognito
+    // ============================================
+    // IMPORTANT: Before deploying, you must verify the domain in SES:
+    // 1. Go to AWS Console > SES > Verified identities
+    // 2. Click "Create identity" and select "Domain"
+    // 3. Enter "guidepostsnap.com" and follow DNS verification steps
+    // 4. Once verified, this configuration will work
+    //
+    // Note: If SES is in sandbox mode, you can only send to verified emails.
+    // Request production access in SES console to send to any email.
+
+    // Reference to the verified SES email identity
+    // This assumes you have verified guidepostsnap.com domain in SES
+    const sesEmailIdentity = ses.EmailIdentity.fromEmailIdentityName(
+      this,
+      'GuidepostEmailIdentity',
+      'guidepostsnap.com'
+    );
+
+    // ============================================
     // COGNITO - User Authentication
     // ============================================
     // Provides JWT-based authentication for web and mobile clients
@@ -66,6 +87,22 @@ export class AwsImageServiceStack extends cdk.Stack {
       functionName: 'image-service-cognito-presignup',
       entry: path.join(__dirname, '../src/handlers/cognito-triggers.ts'),
       handler: 'preSignUpHandler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      bundling: {
+        minify: true,
+        sourceMap: true,
+        target: 'node20',
+      },
+      logRetention: logs.RetentionDays.ONE_WEEK,
+    });
+
+    // Custom Message Lambda Trigger - customizes email templates
+    const customMessageTrigger = new lambdaNodejs.NodejsFunction(this, 'CustomMessageTrigger', {
+      functionName: 'image-service-cognito-custom-message',
+      entry: path.join(__dirname, '../src/handlers/cognito-triggers.ts'),
+      handler: 'customMessageHandler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: cdk.Duration.seconds(10),
       memorySize: 128,
@@ -124,11 +161,60 @@ export class AwsImageServiceStack extends cdk.Stack {
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       // Allow deletion for dev/testing
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      // Lambda triggers - auto-confirm users on signup
+      // Lambda triggers - auto-confirm users on signup, custom email templates
       lambdaTriggers: {
         preSignUp: preSignUpTrigger,
+        customMessage: customMessageTrigger,
+      },
+      // Email configuration - use SES for custom FROM address
+      email: cognito.UserPoolEmail.withSES({
+        fromEmail: 'no-reply@guidepostsnap.com',
+        fromName: 'Guidepost Snap',
+        replyTo: 'support@guidepostsnap.com',
+        sesRegion: 'us-east-1',
+        sesVerifiedDomain: 'guidepostsnap.com',
+      }),
+      // Custom email templates for a professional look
+      userVerification: {
+        emailSubject: 'Verify your Guidepost Snap account',
+        emailBody: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+    <div style="background-color: #ffffff; border-radius: 12px; padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #1a1a2e; margin: 0; font-size: 24px;">Guidepost Snap</h1>
+      </div>
+      <h2 style="color: #333; margin-bottom: 20px;">Verify your email address</h2>
+      <p style="color: #666; font-size: 16px; line-height: 1.6;">
+        Thanks for signing up! Please use the verification code below to complete your registration:
+      </p>
+      <div style="background-color: #f0f4f8; border-radius: 8px; padding: 20px; text-align: center; margin: 30px 0;">
+        <span style="font-size: 32px; font-weight: bold; color: #10b981; letter-spacing: 4px;">{####}</span>
+      </div>
+      <p style="color: #999; font-size: 14px; line-height: 1.6;">
+        This code expires in 24 hours. If you didn't create an account with Guidepost Snap, you can safely ignore this email.
+      </p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+      <p style="color: #999; font-size: 12px; text-align: center;">
+        © 2024 Guidepost Snap. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`,
+        emailStyle: cognito.VerificationEmailStyle.CODE,
       },
     });
+
+    // Add custom message for forgot password (uses Lambda trigger for more control)
+    // For now, we'll use the default Cognito message with SES
+    // The forgot password email will come from no-reply@guidepostsnap.com
 
     // User Pool Client - for web/mobile apps (public client, no secret)
     const userPoolClient = new cognito.UserPoolClient(this, 'ImageServiceUserPoolClient', {
