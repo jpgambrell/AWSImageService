@@ -497,13 +497,14 @@ async function deleteMe(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
   }
 
   const userId = claims.sub;
-  const userEmail = claims.email;
+  const cognitoUsername = claims['cognito:username'];
 
   console.log(JSON.stringify({
     level: 'info',
     message: 'Deleting user account',
     action: 'delete_user_start',
     userId,
+    cognitoUsername,
   }));
 
   try {
@@ -617,7 +618,7 @@ async function deleteMe(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
     // Step 5: Delete the Cognito user
     await cognitoClient.send(new AdminDeleteUserCommand({
       UserPoolId: USER_POOL_ID,
-      Username: userEmail,
+      Username: cognitoUsername,
     }));
 
     console.log(JSON.stringify({
@@ -683,6 +684,7 @@ async function upgradeAccount(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   const userId = claims.sub;
   const currentEmail = claims.email;
+  const cognitoUsername = claims['cognito:username'];
 
   // Verify this is a guest account
   if (!currentEmail.includes('@guidepost.guest')) {
@@ -694,15 +696,17 @@ async function upgradeAccount(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     message: 'Upgrading guest account',
     action: 'upgrade_account_start',
     userId,
+    cognitoUsername,
     currentEmail,
     newEmail: body.email,
   }));
 
   try {
     // Step 1: Update user attributes (email, given_name, family_name)
+    // Use cognitoUsername (the actual Cognito username) not email for admin operations
     await cognitoClient.send(new AdminUpdateUserAttributesCommand({
       UserPoolId: USER_POOL_ID,
-      Username: currentEmail,
+      Username: cognitoUsername,
       UserAttributes: [
         { Name: 'email', Value: body.email },
         { Name: 'email_verified', Value: 'true' }, // Mark new email as verified
@@ -721,7 +725,7 @@ async function upgradeAccount(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // Step 2: Set new password
     await cognitoClient.send(new AdminSetUserPasswordCommand({
       UserPoolId: USER_POOL_ID,
-      Username: currentEmail, // Use original username since it hasn't changed yet
+      Username: cognitoUsername, // Use Cognito username, not email
       Password: body.password,
       Permanent: true,
     }));
